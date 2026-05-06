@@ -1,12 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ─── Storage ──────────────────────────────────────────────────────────────────
-const K = { posts:"dlwns-posts5", profile:"dlwns-profile4" };
-async function load(key) {
-  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; } catch { return null; }
+// ─── Storage (localStorage) ───────────────────────────────────────────────────
+const K = { posts:"dlwns-posts5", profile:"dlwns-profile4", stocks:"dlwns-stocks1" };
+
+function load(key) {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch { return null; }
 }
-async function save(key, val) {
-  try { await window.storage.set(key, JSON.stringify(val)); } catch {} }
+function save(key, val) {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch(e) {
+    // 용량 초과(이미지 등) 시 이미지 제외하고 재시도
+    if(e.name === 'QuotaExceededError' && key === K.profile) {
+      try { localStorage.setItem(key, JSON.stringify({...val, avatar:""})); } catch {}
+    }
+    console.warn('저장 용량 초과:', e);
+  }
+}
 const toB64 = f => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
 
 // ─── Browser History ──────────────────────────────────────────────────────────
@@ -71,6 +84,12 @@ const DEF_POSTS = [
 
 function fmtDate(s){ const d=new Date(s); return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; }
 
+// 오늘 날짜 문자열 (한국어)
+function getTodayKr() {
+  const d = new Date();
+  const days = ['일','월','화','수','목','금','토'];
+  return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
+}
 
 // ─── Stock Data ───────────────────────────────────────────────────────────────
 const PERIODS = [
@@ -79,25 +98,43 @@ const PERIODS = [
   { id:"6m", label:"6달",  days:182 },
   { id:"1y", label:"1년",  days:365 },
 ];
-function sliceByCalendarDays(candles, calendarDays) {
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - calendarDays);
-  return candles.filter(c => new Date(c.d) >= cutoff);
+
+// 날짜 문자열 기반 seed → 같은 날 항상 같은 값 보장
+function seededRand(seed) {
+  let s = (seed ^ 0xdeadbeef) >>> 0;
+  return () => {
+    s = Math.imul(s ^ (s >>> 16), 0x45d9f3b) >>> 0;
+    s = Math.imul(s ^ (s >>> 16), 0x45d9f3b) >>> 0;
+    s = (s ^ (s >>> 16)) >>> 0;
+    return s / 0x100000000;
+  };
 }
+function dateSeed(dateStr, extra=0) {
+  return dateStr.replace(/-/g,'').split('').reduce((a,c,i)=>((a<<5)-a+c.charCodeAt(0)*31*(i+1)),extra);
+}
+
 function genCandles(base, vol, days=365) {
   const data=[]; let price=base;
   const now=new Date(); now.setHours(0,0,0,0);
   for(let i=days;i>=0;i--){
     const d=new Date(now); d.setDate(d.getDate()-i);
     if(d.getDay()===0||d.getDay()===6) continue;
-    const change=(Math.random()-0.48)*vol;
-    const close=+(price*(1+change/100)).toFixed(2);
-    const open=price;
-    const high=+(Math.max(open,close)*(1+Math.random()*vol*0.003)).toFixed(2);
-    const low=+(Math.min(open,close)*(1-Math.random()*vol*0.003)).toFixed(2);
-    data.push({ d:d.toISOString().slice(0,10), o:open, h:high, l:low, c:close });
+    const dateStr = d.toISOString().slice(0,10);
+    // 날짜 + 기준가 조합으로 seed → 항상 같은 값
+    const rand = seededRand(dateSeed(dateStr, Math.round(base)));
+    const change = (rand()-0.48)*vol;
+    const open = price;
+    const close = +(price*(1+change/100)).toFixed(2);
+    const high  = +(Math.max(open,close)*(1+rand()*vol*0.003)).toFixed(2);
+    const low   = +(Math.min(open,close)*(1-rand()*vol*0.003)).toFixed(2);
+    data.push({ d:dateStr, o:open, h:high, l:low, c:close });
     price=close;
   }
   return data;
+}
+function sliceByCalendarDays(candles, calendarDays) {
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - calendarDays);
+  return candles.filter(c => new Date(c.d) >= cutoff);
 }
 const SP500_STOCKS = [
   { ticker:"NVDA", name:"NVIDIA",    base:875,  vol:3.2, color:"#76b900" },
@@ -210,9 +247,11 @@ button{font-family:'Noto Sans KR',sans-serif;}
 .period-tab.active{background:var(--text);color:#fff;border-color:var(--text);}
 .index-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
 .index-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:18px 22px;}
+.index-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;}
 .idx-info h3{font-size:0.72rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
 .idx-val{font-family:'Montserrat',sans-serif;font-size:1.7rem;font-weight:700;color:#111;}
 .idx-chg{font-size:0.85rem;font-weight:600;margin-top:3px;}
+.idx-dates{font-size:0.68rem;color:var(--muted);margin-top:6px;display:flex;gap:8px;}
 .up{color:var(--red);}
 .dn{color:var(--green);}
 .chart-box{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:22px;margin-bottom:22px;}
@@ -389,6 +428,51 @@ function MainChart({ candles, color }) {
   return <canvas ref={ref} style={{width:'100%',height:'220px',display:'block'}} />;
 }
 
+// ─── Index Card Mini Chart (야후 파이낸스 스타일) ─────────────────────────────
+function IndexMiniChart({ candles, up }) {
+  const ref = useRef();
+  const color = up ? '#DE350B' : '#00875A';
+  useEffect(()=>{
+    const c = ref.current; if(!c) return;
+    const ctx = c.getContext('2d');
+    const W = c.offsetWidth||320, H = 72;
+    c.width = W; c.height = H;
+    if(!candles||candles.length<2){ ctx.clearRect(0,0,W,H); return; }
+    const vals = candles.map(p=>p.c);
+    const mnRaw = Math.min(...vals), mxRaw = Math.max(...vals);
+    const mn = mnRaw===mxRaw ? mnRaw*0.995 : mnRaw;
+    const mx = mnRaw===mxRaw ? mxRaw*1.005 : mxRaw;
+    const pL=2, pR=2, pT=4, pB=4;
+    const W2=W-pL-pR, H2=H-pT-pB;
+    ctx.clearRect(0,0,W,H);
+    // gradient fill
+    const grad = ctx.createLinearGradient(0,pT,0,H-pB);
+    grad.addColorStop(0, color+'55');
+    grad.addColorStop(1, color+'00');
+    ctx.beginPath();
+    candles.forEach((p,i)=>{
+      const x=pL+W2*(i/(candles.length-1));
+      const y=pT+H2*(1-(p.c-mn)/(mx-mn));
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.lineTo(pL+W2,H-pB); ctx.lineTo(pL,H-pB); ctx.closePath();
+    ctx.fillStyle=grad; ctx.fill();
+    // line
+    ctx.beginPath();
+    candles.forEach((p,i)=>{
+      const x=pL+W2*(i/(candles.length-1));
+      const y=pT+H2*(1-(p.c-mn)/(mx-mn));
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.stroke();
+    // current price dot
+    const lastX = pL+W2;
+    const lastY = pT+H2*(1-(candles[candles.length-1].c-mn)/(mx-mn));
+    ctx.beginPath(); ctx.arc(lastX,lastY,3.5,0,Math.PI*2);
+    ctx.fillStyle=color; ctx.fill();
+  },[candles,up]);
+  return <canvas ref={ref} style={{width:'100%',height:'72px',display:'block'}}/>;
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -433,31 +517,30 @@ export default function App() {
   }, []);
 
   useEffect(()=>{
-    (async()=>{
-      const [p,ps] = await Promise.all([load(K.profile), load(K.posts)]);
-      if(p) setProfile(p);
-      const loaded = ps||DEF_POSTS;
-      setPosts(loaded); postsRef.current = loaded;
-      const init = readState();
-      setCatRaw(init.cat); setSubRaw(init.subcat||"all");
-      if(init.postId) { const f=loaded.find(p=>p.id===init.postId); if(f) setDetailRaw(f); }
-      window.history.replaceState({ cat:init.cat, subcat:init.subcat, postId:init.postId }, "", window.location.href);
-      setLoading(false);
-    })();
+    const p  = load(K.profile);
+    const ps = load(K.posts);
+    if(p) setProfile(p);
+    const loaded = ps||DEF_POSTS;
+    setPosts(loaded); postsRef.current = loaded;
+    const init = readState();
+    setCatRaw(init.cat); setSubRaw(init.subcat||"all");
+    if(init.postId) { const f=loaded.find(p=>p.id===init.postId); if(f) setDetailRaw(f); }
+    window.history.replaceState({ cat:init.cat, subcat:init.subcat, postId:init.postId }, "", window.location.href);
+    setLoading(false);
   }, []);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
-  const savePost = async () => {
+  const savePost = () => {
     const today=new Date().toISOString().slice(0,10);
     const u = editing
       ? posts.map(p=>p.id===editing.id?{...p,...form}:p)
       : [{id:Date.now(),...form,date:today},...posts];
-    setPosts(u); postsRef.current=u; await save(K.posts,u);
+    setPosts(u); postsRef.current=u; save(K.posts,u);
     setModal(null); setEditing(null);
     setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",pinned:false,videoUrl:""});
   };
-  const delPost = async(id) => {
-    const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u; await save(K.posts,u);
+  const delPost = (id) => {
+    const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u; save(K.posts,u);
     if(detail?.id===id) { setDetailRaw(null); window.history.back(); }
   };
   const openEdit = p => {
@@ -465,9 +548,14 @@ export default function App() {
     setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",pinned:p.pinned||false,videoUrl:p.videoUrl||""});
     setModal('write');
   };
-  const saveProfile = async() => { setProfile(prForm); await save(K.profile,prForm); setModal(null); };
-  const handleImg = async e => { const f=e.target.files[0]; if(!f)return; setForm({...form,img:await toB64(f)}); };
-  const handleAvatar = async e => { const f=e.target.files[0]; if(!f)return; const u={...profile,avatar:await toB64(f)}; setProfile(u); await save(K.profile,u); };
+  const saveProfile = () => { setProfile(prForm); save(K.profile,prForm); setModal(null); };
+  const handleImg   = async e => { const f=e.target.files[0]; if(!f)return; setForm({...form,img:await toB64(f)}); };
+  const handleAvatar = async e => {
+    const f=e.target.files[0]; if(!f)return;
+    const b64 = await toB64(f);
+    const u = {...profile, avatar:b64};
+    setProfile(u); save(K.profile, u);
+  };
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',photo:'📷'};
@@ -532,6 +620,7 @@ export default function App() {
           {CATS.map(c=><button key={c.id} className={`nav-link ${activeCat===c.id&&!detail?'active':''}`} onClick={()=>navToCat(c.id)}>{c.label}</button>)}
         </nav>
         <div className="header-actions">
+          <span style={{fontSize:'0.78rem',color:'var(--muted)',fontWeight:500,marginRight:4}}>{getTodayKr()}</span>
           <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
           <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
@@ -653,8 +742,50 @@ export default function App() {
               </div>
             </div>
             <div className="index-cards">
-              <div className="index-card"><div className="idx-info"><h3>{market==='sp500'?'S&P 500':'KOSPI'} ({PERIODS.find(p=>p.id===period)?.label})</h3><div className="idx-val">{market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()}</div><div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>{parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%</div></div></div>
-              <div className="index-card"><div className="idx-info"><h3>{cur.ticker} {PERIODS.find(p=>p.id===period)?.label} 수익률</h3><div className="idx-val">{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</div><div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</div></div></div>
+              {/* S&P500 or KOSPI 인덱스 카드 */}
+              <div className="index-card">
+                <div className="index-card-top">
+                  <div className="idx-info">
+                    <h3>{market==='sp500'?'S&P 500':'KOSPI'} Index</h3>
+                    <div className="idx-val">{market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()}</div>
+                    <div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>
+                      {parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%
+                      <span style={{fontWeight:400,fontSize:'0.75rem',color:'var(--muted)',marginLeft:6}}>{PERIODS.find(p=>p.id===period)?.label} 기준</span>
+                    </div>
+                  </div>
+                </div>
+                <IndexMiniChart
+                  key={`idx-${market}-${period}`}
+                  candles={idxSliced}
+                  up={parseFloat(idxChg)>=0}
+                />
+                <div className="idx-dates">
+                  <span>{idxSliced[0]?.d||''}</span>
+                  <span style={{marginLeft:'auto'}}>{idxSliced[idxSliced.length-1]?.d||''}</span>
+                </div>
+              </div>
+              {/* 선택 종목 카드 */}
+              <div className="index-card">
+                <div className="index-card-top">
+                  <div className="idx-info">
+                    <h3>{cur.name} ({cur.ticker})</h3>
+                    <div className="idx-val">{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</div>
+                    <div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>
+                      {parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%
+                      <span style={{fontWeight:400,fontSize:'0.75rem',color:'var(--muted)',marginLeft:6}}>{PERIODS.find(p=>p.id===period)?.label} 기준</span>
+                    </div>
+                  </div>
+                </div>
+                <IndexMiniChart
+                  key={`cur-${market}-${selStock}-${period}`}
+                  candles={curCandles}
+                  up={parseFloat(curChg)>=0}
+                />
+                <div className="idx-dates">
+                  <span>{curCandles[0]?.d||''}</span>
+                  <span style={{marginLeft:'auto'}}>{curCandles[curCandles.length-1]?.d||''}</span>
+                </div>
+              </div>
             </div>
             <div className="chart-box">
               <div className="chart-header">
