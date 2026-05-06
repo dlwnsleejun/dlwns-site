@@ -12,12 +12,12 @@ const toB64 = f => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=(
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const CATS = [
   { id:"all",         label:"전체" },
-  { id:"insight",     label:"인사이트",    color:"#0052CC" },
-  { id:"inspiration", label:"인스퍼레이션",color:"#6554C0" },
-  { id:"career",      label:"커리어",      color:"#00875A" },
-  { id:"study",       label:"스터디",      color:"#FF8B00" },
-  { id:"daily",       label:"하루기록",    color:"#DE350B" },
-  { id:"photo",       label:"오늘의 사진", color:"#008DA6" },
+  { id:"insight",     label:"인사이트",    color:"#0052CC", desc:"생각과 아이디어를 정리합니다" },
+  { id:"inspiration", label:"인스퍼레이션",color:"#6554C0", desc:"영감을 주는 것들을 기록합니다" },
+  { id:"career",      label:"커리어",      color:"#00875A", desc:"직무와 성장에 관한 이야기" },
+  { id:"study",       label:"스터디",      color:"#FF8B00", desc:"배움을 정리하고 공유합니다" },
+  { id:"daily",       label:"하루기록",    color:"#DE350B", desc:"일상의 소소한 순간들" },
+  { id:"photo",       label:"오늘의 사진", color:"#008DA6", desc:"렌즈로 담은 순간들" },
 ];
 const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
 
@@ -148,6 +148,18 @@ button{font-family:'Noto Sans KR',sans-serif;}
 .hero-card p{font-size:0.82rem;color:var(--muted);text-align:center;margin-bottom:20px;}
 .hero-card-bio{font-size:0.85rem;color:var(--sub);line-height:1.75;padding-top:20px;border-top:1px solid var(--border);}
 
+/* ── CATEGORY HEADER ── */
+.cat-hero{background:#fff;border-bottom:1px solid var(--border);padding:60px 0;}
+.cat-hero-inner{max-width:1280px;margin:0 auto;padding:0 32px;}
+.cat-hero-eyebrow{font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px;}
+.cat-hero-title{font-family:'Montserrat',sans-serif;font-size:2.5rem;font-weight:800;margin-bottom:12px;letter-spacing:-1px;}
+.cat-hero-desc{font-size:1.05rem;color:var(--sub);margin-bottom:24px;}
+.cat-hero-stats{display:flex;gap:32px;}
+.cat-stat{display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);}
+.cat-stat-icon{font-size:1.3rem;}
+.cat-stat-num{font-family:'Montserrat',sans-serif;font-size:1.4rem;font-weight:700;line-height:1;}
+.cat-stat-label{font-size:0.75rem;color:var(--muted);margin-top:2px;}
+
 /* ── STATS BAR ── */
 .stats-bar{background:#fff;border-bottom:1px solid var(--border);}
 .stats-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:grid;grid-template-columns:repeat(6,1fr);gap:0;}
@@ -192,6 +204,7 @@ canvas{width:100%!important;display:block;}
 /* ── CONTENT ── */
 .content-section{background:#fff;padding:60px 0;}
 .content-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:grid;grid-template-columns:1fr 320px;gap:40px;}
+.content-full{max-width:1280px;margin:0 auto;padding:0 32px;}
 
 .featured{background:#fff;border:2px solid var(--border);border-radius:var(--radius);overflow:hidden;display:grid;grid-template-columns:1fr 300px;cursor:pointer;margin-bottom:28px;transition:all 0.2s;}
 .featured:hover{border-color:var(--primary);box-shadow:0 6px 24px rgba(0,0,0,0.08);}
@@ -204,6 +217,7 @@ canvas{width:100%!important;display:block;}
 .featured-img img{width:100%;height:100%;object-fit:cover;}
 
 .posts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.posts-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
 .post-card{background:#fff;border:2px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all 0.2s;}
 .post-card:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(0,0,0,0.08);}
 .pc-thumb{height:160px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:2.5rem;overflow:hidden;}
@@ -273,6 +287,9 @@ footer{border-top:1px solid var(--border);padding:32px;text-align:center;font-si
 footer b{color:var(--primary);}
 
 .empty{text-align:center;padding:80px 0;color:var(--muted);}
+.empty-icon{font-size:3.5rem;margin-bottom:16px;opacity:0.3;}
+.empty-title{font-size:1.1rem;font-weight:600;margin-bottom:8px;}
+.empty-desc{font-size:0.88rem;margin-bottom:24px;}
 
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .fade{animation:fadeIn 0.35s ease both;}
@@ -315,7 +332,6 @@ function MainChart({ candles, color }) {
     const padL=60, padR=20, padT=20, padB=32;
     const W2=W-padL-padR, H2=H-padT-padB;
     ctx.clearRect(0,0,W,H);
-    // grid
     ctx.strokeStyle='#f0f0f0'; ctx.lineWidth=1;
     for(let i=0;i<=4;i++){
       const y=padT+H2*(1-i/4);
@@ -324,7 +340,6 @@ function MainChart({ candles, color }) {
       ctx.fillStyle='#999'; ctx.font='11px Montserrat'; ctx.textAlign='right';
       ctx.fillText(val>=1000?Math.round(val).toLocaleString():val.toFixed(2),padL-6,y+4);
     }
-    // x labels
     const step=Math.floor(pts.length/7);
     pts.forEach((p,i)=>{
       if(i%step===0){
@@ -333,7 +348,6 @@ function MainChart({ candles, color }) {
         ctx.fillText(p.d.slice(5),x,H-8);
       }
     });
-    // fill
     const grad=ctx.createLinearGradient(0,padT,0,H-padB);
     grad.addColorStop(0,color+'33'); grad.addColorStop(1,color+'00');
     ctx.beginPath();
@@ -344,7 +358,6 @@ function MainChart({ candles, color }) {
     });
     ctx.lineTo(padL+W2,H-padB); ctx.lineTo(padL,H-padB); ctx.closePath();
     ctx.fillStyle=grad; ctx.fill();
-    // line
     ctx.beginPath();
     pts.forEach((p,i)=>{
       const x=padL+W2*(i/(pts.length-1));
@@ -381,8 +394,8 @@ export default function App() {
   },[]);
 
   const filtered = activeCat==="all" ? posts : posts.filter(p=>p.cat===activeCat);
-  const pinned = filtered.find(p=>p.pinned)||filtered[0];
-  const rest = filtered.filter(p=>p!==pinned);
+  const pinned = activeCat==="all" ? (filtered.find(p=>p.pinned)||filtered[0]) : null;
+  const rest = pinned ? filtered.filter(p=>p!==pinned) : filtered;
   const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
 
   const stocks = market==="sp500" ? SP500_DATA : KOSPI_DATA;
@@ -409,6 +422,8 @@ export default function App() {
   const handleAvatar=async e=>{ const f=e.target.files[0]; if(!f)return; const u={...profile,avatar:await toB64(f)}; setProfile(u); await save(K.profile,u); };
 
   const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',photo:'📷'};
+  const catInfo = CAT[activeCat];
+  const isAll = activeCat === "all";
 
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
@@ -448,178 +463,250 @@ export default function App() {
     )}
 
     {!detail && (<>
-      {/* ── HERO ── */}
-      <section className="hero">
-        <div className="hero-inner">
-          <div className="hero-content">
-            <h1>나의 생각과 기록을<br/><span>담는 공간</span></h1>
-            <p>일상, 인사이트, 그리고 배움을 기록하며 성장하는 개인 블로그입니다. 지금 바로 새로운 글을 작성해보세요.</p>
-            <div className="hero-actions">
-              <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",body:"",img:"",pinned:false});setModal('write');}}>+ 새 글 작성</button>
-              <button className="btn btn-lg btn-outline-white" onClick={()=>setCat("all")}>전체 글 보기</button>
-            </div>
-          </div>
-          <div className="hero-card">
-            <div className="hero-avatar" onClick={()=>avatarRef.current.click()}>
-              {profile.avatar?<img src={profile.avatar} alt=""/>:profile.name[0]?.toUpperCase()}
-              <div className="hero-avatar-ov">변경</div>
-              <input ref={avatarRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleAvatar}/>
-            </div>
-            <h2>{profile.name}</h2>
-            <p>{profile.tagline}</p>
-            <div className="hero-card-bio">{profile.bio}</div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── STATS BAR ── */}
-      <div className="stats-bar">
-        <div className="stats-inner">
-          {CATS.slice(1).map(c=>(
-            <div className="stat" key={c.id} onClick={()=>setCat(c.id)}>
-              <div className="stat-num">{posts.filter(p=>p.cat===c.id).length}</div>
-              <div className="stat-label">{c.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── STOCK SECTION ── */}
-      <section className="stock-section">
-        <div className="stock-inner">
-          <div className="section-head">
-            <div>
-              <div className="section-title">마켓 인사이트</div>
-              <div className="section-sub">실시간 시뮬레이션 데이터 (90일 차트)</div>
-            </div>
-            <div className="market-tabs">
-              <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
-              <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
-            </div>
-          </div>
-
-          <div className="index-cards">
-            <div className="index-card">
-              <div className="idx-info">
-                <h3>{market==='sp500'?'S&P 500 Index':'KOSPI Index'}</h3>
-                <div className="idx-val">{market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()}</div>
-                <div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>{parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%</div>
+      {/* ── HERO (전체만) ── */}
+      {isAll && (
+        <section className="hero">
+          <div className="hero-inner">
+            <div className="hero-content">
+              <h1>나의 생각과 기록을<br/><span>담는 공간</span></h1>
+              <p>일상, 인사이트, 그리고 배움을 기록하며 성장하는 개인 블로그입니다. 지금 바로 새로운 글을 작성해보세요.</p>
+              <div className="hero-actions">
+                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",body:"",img:"",pinned:false});setModal('write');}}>+ 새 글 작성</button>
+                <button className="btn btn-lg btn-outline-white" onClick={()=>setCat("all")}>전체 글 보기</button>
               </div>
             </div>
-            <div className="index-card">
-              <div className="idx-info">
-                <h3>선택 종목: {cur.ticker}</h3>
-                <div className="idx-val">{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</div>
-                <div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</div>
+            <div className="hero-card">
+              <div className="hero-avatar" onClick={()=>avatarRef.current.click()}>
+                {profile.avatar?<img src={profile.avatar} alt=""/>:profile.name[0]?.toUpperCase()}
+                <div className="hero-avatar-ov">변경</div>
+                <input ref={avatarRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleAvatar}/>
               </div>
+              <h2>{profile.name}</h2>
+              <p>{profile.tagline}</p>
+              <div className="hero-card-bio">{profile.bio}</div>
             </div>
           </div>
+        </section>
+      )}
 
-          <div className="chart-box">
-            <div className="chart-label">{cur.name} ({cur.ticker}) — 최근 90일</div>
-            <MainChart key={`${market}-${selStock}`} candles={cur.candles} color={cur.color} />
-          </div>
-
-          <div className="stocks-grid">
-            {stocks.map((s,i)=>{
-              const last=s.candles[s.candles.length-1].c;
-              const prev=s.candles[s.candles.length-2].c;
-              const chg=((last-prev)/prev*100).toFixed(2);
-              const up=parseFloat(chg)>=0;
-              return (
-                <div key={s.ticker} className={`stock-card ${selStock===i?'selected':''}`} onClick={()=>setSelStock(i)}>
-                  <div className="stock-ticker" style={{color:s.color}}>{s.ticker}</div>
-                  <div className="stock-name">{s.name}</div>
-                  <div className="stock-price">{market==='sp500'?'$':''}{last>=1000?Math.round(last).toLocaleString():last.toFixed(2)}</div>
-                  <div className={`stock-chg ${up?'up':'dn'}`}>{up?'▲':'▼'} {Math.abs(chg)}%</div>
-                  <Sparkline candles={s.candles} color={up?'#DE350B':'#00875A'} width={140} height={32}/>
+      {/* ── CATEGORY HERO (특정 카테고리) ── */}
+      {!isAll && catInfo && (
+        <section className="cat-hero">
+          <div className="cat-hero-inner">
+            <div className="cat-hero-eyebrow" style={{color:catInfo.color}}>{catInfo.label}</div>
+            <h1 className="cat-hero-title" style={{color:catInfo.color}}>{catInfo.label}</h1>
+            <p className="cat-hero-desc">{catInfo.desc}</p>
+            <div className="cat-hero-stats">
+              <div className="cat-stat">
+                <div className="cat-stat-icon">📝</div>
+                <div>
+                  <div className="cat-stat-num" style={{color:catInfo.color}}>{filtered.length}</div>
+                  <div className="cat-stat-label">총 게시물</div>
                 </div>
-              );
-            })}
+              </div>
+              {filtered.length > 0 && (
+                <div className="cat-stat">
+                  <div className="cat-stat-icon">📅</div>
+                  <div>
+                    <div className="cat-stat-num" style={{color:catInfo.color}}>{fmtDate(filtered[0].date).slice(0,7)}</div>
+                    <div className="cat-stat-label">최근 업데이트</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── STATS BAR (전체만) ── */}
+      {isAll && (
+        <div className="stats-bar">
+          <div className="stats-inner">
+            {CATS.slice(1).map(c=>(
+              <div className="stat" key={c.id} onClick={()=>setCat(c.id)}>
+                <div className="stat-num">{posts.filter(p=>p.cat===c.id).length}</div>
+                <div className="stat-label">{c.label}</div>
+              </div>
+            ))}
           </div>
         </div>
-      </section>
+      )}
+
+      {/* ── STOCK SECTION (전체만) ── */}
+      {isAll && (
+        <section className="stock-section">
+          <div className="stock-inner">
+            <div className="section-head">
+              <div>
+                <div className="section-title">마켓 인사이트</div>
+                <div className="section-sub">실시간 시뮬레이션 데이터 (90일 차트)</div>
+              </div>
+              <div className="market-tabs">
+                <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
+                <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
+              </div>
+            </div>
+
+            <div className="index-cards">
+              <div className="index-card">
+                <div className="idx-info">
+                  <h3>{market==='sp500'?'S&P 500 Index':'KOSPI Index'}</h3>
+                  <div className="idx-val">{market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()}</div>
+                  <div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>{parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%</div>
+                </div>
+              </div>
+              <div className="index-card">
+                <div className="idx-info">
+                  <h3>선택 종목: {cur.ticker}</h3>
+                  <div className="idx-val">{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</div>
+                  <div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="chart-box">
+              <div className="chart-label">{cur.name} ({cur.ticker}) — 최근 90일</div>
+              <MainChart key={`${market}-${selStock}`} candles={cur.candles} color={cur.color} />
+            </div>
+
+            <div className="stocks-grid">
+              {stocks.map((s,i)=>{
+                const last=s.candles[s.candles.length-1].c;
+                const prev=s.candles[s.candles.length-2].c;
+                const chg=((last-prev)/prev*100).toFixed(2);
+                const up=parseFloat(chg)>=0;
+                return (
+                  <div key={s.ticker} className={`stock-card ${selStock===i?'selected':''}`} onClick={()=>setSelStock(i)}>
+                    <div className="stock-ticker" style={{color:s.color}}>{s.ticker}</div>
+                    <div className="stock-name">{s.name}</div>
+                    <div className="stock-price">{market==='sp500'?'$':''}{last>=1000?Math.round(last).toLocaleString():last.toFixed(2)}</div>
+                    <div className={`stock-chg ${up?'up':'dn'}`}>{up?'▲':'▼'} {Math.abs(chg)}%</div>
+                    <Sparkline candles={s.candles} color={up?'#DE350B':'#00875A'} width={140} height={32}/>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── CONTENT ── */}
       <section className="content-section">
-        <div className="content-inner fade">
-          <div>
-            {pinned && (
-              <div className="featured" onClick={()=>setDetail(pinned)}>
-                <div className="featured-body">
-                  <div className="f-cat" style={{color:CAT[pinned.cat]?.color}}>{CAT[pinned.cat]?.label}</div>
-                  <div className="f-title">{pinned.title}</div>
-                  <div className="f-sum">{pinned.summary}</div>
-                  <div className="f-meta">
-                    <span>{fmtDate(pinned.date)}</span>
-                    <div className="f-actions" onClick={e=>e.stopPropagation()} style={{display:'flex',gap:6}}>
-                      <button className="btn-sm" onClick={()=>openEdit(pinned)}>수정</button>
-                      <button className="btn-del-sm" onClick={()=>delPost(pinned.id)}>삭제</button>
-                    </div>
-                  </div>
-                </div>
-                <div className="featured-img">{pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}</div>
-              </div>
-            )}
-            {rest.length>0?(
-              <div className="posts-grid">
-                {rest.map(p=>(
-                  <div key={p.id} className="post-card" onClick={()=>setDetail(p)}>
-                    <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}</div>
-                    <div className="pc-body">
-                      <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
-                      <div className="pc-title">{p.title}</div>
-                      <div className="pc-sum">{p.summary}</div>
-                      <div className="pc-meta">
-                        <span>{fmtDate(p.date)}</span>
-                        <div className="pc-actions" onClick={e=>e.stopPropagation()}>
-                          <button className="btn-sm" onClick={()=>openEdit(p)}>수정</button>
-                          <button className="btn-del-sm" onClick={()=>delPost(p.id)}>삭제</button>
+        <div className={isAll ? "content-inner fade" : "content-full fade"}>
+          {isAll ? (
+            // 전체 뷰: 사이드바 포함
+            <>
+              <div>
+                {pinned && (
+                  <div className="featured" onClick={()=>setDetail(pinned)}>
+                    <div className="featured-body">
+                      <div className="f-cat" style={{color:CAT[pinned.cat]?.color}}>{CAT[pinned.cat]?.label}</div>
+                      <div className="f-title">{pinned.title}</div>
+                      <div className="f-sum">{pinned.summary}</div>
+                      <div className="f-meta">
+                        <span>{fmtDate(pinned.date)}</span>
+                        <div className="f-actions" onClick={e=>e.stopPropagation()} style={{display:'flex',gap:6}}>
+                          <button className="btn-sm" onClick={()=>openEdit(pinned)}>수정</button>
+                          <button className="btn-del-sm" onClick={()=>delPost(pinned.id)}>삭제</button>
                         </div>
                       </div>
                     </div>
+                    <div className="featured-img">{pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}</div>
                   </div>
-                ))}
+                )}
+                {rest.length>0?(
+                  <div className="posts-grid">
+                    {rest.map(p=>(
+                      <div key={p.id} className="post-card" onClick={()=>setDetail(p)}>
+                        <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}</div>
+                        <div className="pc-body">
+                          <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
+                          <div className="pc-title">{p.title}</div>
+                          <div className="pc-sum">{p.summary}</div>
+                          <div className="pc-meta">
+                            <span>{fmtDate(p.date)}</span>
+                            <div className="pc-actions" onClick={e=>e.stopPropagation()}>
+                              <button className="btn-sm" onClick={()=>openEdit(p)}>수정</button>
+                              <button className="btn-del-sm" onClick={()=>delPost(p.id)}>삭제</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ):!pinned&&<div className="empty">📝<br/><br/>아직 글이 없어요. 첫 번째 글을 작성해보세요!</div>}
               </div>
-            ):!pinned&&<div className="empty">📝<br/><br/>아직 글이 없어요. 첫 번째 글을 작성해보세요!</div>}
-          </div>
 
-          {/* sidebar */}
-          <aside className="sidebar">
-            <div className="side-box">
-              <div className="profile-box">
-                <div className="profile-mini-avatar">
-                  {profile.avatar?<img src={profile.avatar} alt="" />:profile.name[0]?.toUpperCase()}
-                </div>
-                <div className="profile-mini-name">{profile.name}</div>
-                <div className="profile-mini-tag">{profile.tagline}</div>
-              </div>
-            </div>
-
-            <div className="side-box">
-              <div className="side-head">최근 게시글 <span className="side-more" onClick={()=>setCat("all")}>전체보기</span></div>
-              {recent.map((p,i)=>(
-                <div key={p.id} className="side-item" onClick={()=>setDetail(p)}>
-                  <div className="side-n">{String(i+1).padStart(2,'0')}</div>
-                  <div>
-                    <div className="side-t">{p.title}</div>
-                    <div className="side-m" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label} · {fmtDate(p.date)}</div>
+              {/* sidebar */}
+              <aside className="sidebar">
+                <div className="side-box">
+                  <div className="profile-box">
+                    <div className="profile-mini-avatar">
+                      {profile.avatar?<img src={profile.avatar} alt="" />:profile.name[0]?.toUpperCase()}
+                    </div>
+                    <div className="profile-mini-name">{profile.name}</div>
+                    <div className="profile-mini-tag">{profile.tagline}</div>
                   </div>
                 </div>
-              ))}
-            </div>
 
-            <div className="side-box">
-              <div className="side-head">카테고리</div>
-              <div className="cat-box">
-                {CATS.slice(1).map(c=>(
-                  <button key={c.id} className={`cat-chip ${activeCat===c.id?'active':''}`} onClick={()=>setCat(c.id)}>
-                    {c.label} <span style={{fontWeight:700}}>{posts.filter(p=>p.cat===c.id).length}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </aside>
+                <div className="side-box">
+                  <div className="side-head">최근 게시글 <span className="side-more" onClick={()=>setCat("all")}>전체보기</span></div>
+                  {recent.map((p,i)=>(
+                    <div key={p.id} className="side-item" onClick={()=>setDetail(p)}>
+                      <div className="side-n">{String(i+1).padStart(2,'0')}</div>
+                      <div>
+                        <div className="side-t">{p.title}</div>
+                        <div className="side-m" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label} · {fmtDate(p.date)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="side-box">
+                  <div className="side-head">카테고리</div>
+                  <div className="cat-box">
+                    {CATS.slice(1).map(c=>(
+                      <button key={c.id} className={`cat-chip ${activeCat===c.id?'active':''}`} onClick={()=>setCat(c.id)}>
+                        {c.label} <span style={{fontWeight:700}}>{posts.filter(p=>p.cat===c.id).length}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </aside>
+            </>
+          ) : (
+            // 카테고리별 뷰: 3열 그리드, 사이드바 없음
+            <>
+              {filtered.length > 0 ? (
+                <div className="posts-grid-3">
+                  {filtered.map(p=>(
+                    <div key={p.id} className="post-card" onClick={()=>setDetail(p)}>
+                      <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}</div>
+                      <div className="pc-body">
+                        <div className="pc-cat" style={{color:catInfo.color}}>{catInfo.label}</div>
+                        <div className="pc-title">{p.title}</div>
+                        <div className="pc-sum">{p.summary}</div>
+                        <div className="pc-meta">
+                          <span>{fmtDate(p.date)}</span>
+                          <div className="pc-actions" onClick={e=>e.stopPropagation()}>
+                            <button className="btn-sm" onClick={()=>openEdit(p)}>수정</button>
+                            <button className="btn-del-sm" onClick={()=>delPost(p.id)}>삭제</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty">
+                  <div className="empty-icon">{EMO[activeCat]}</div>
+                  <div className="empty-title">아직 {catInfo.label}에 글이 없어요</div>
+                  <div className="empty-desc">{catInfo.label} 카테고리의 첫 번째 글을 작성해보세요!</div>
+                  <button className="btn btn-primary btn-lg" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,body:"",img:"",pinned:false});setModal('write');}}>+ 첫 글 작성하기</button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
     </>)}
@@ -654,7 +741,7 @@ export default function App() {
             </div>
             <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
               <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
-              <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.85rem'}}>대표 글로 상단에 고정</label>
+              <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.85rem'}}>대표 글로 상단에 고정 (전체 페이지만)</label>
             </div>
           </div>
           <div className="modal-foot">
