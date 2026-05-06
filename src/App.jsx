@@ -1,635 +1,689 @@
 import { useState, useEffect, useRef } from "react";
 
-// ─── storage helpers ──────────────────────────────────────────────────────────
-const K = { diary:"dlwns-diary2", photos:"dlwns-photos2", career:"dlwns-career2", profile:"dlwns-profile2" };
-
-// storage functions using localStorage
+// ─── Storage ──────────────────────────────────────────────────────────────────
+const K = { posts:"dlwns-posts4", profile:"dlwns-profile4" };
 async function load(key) {
-  try { const val = localStorage.getItem(key); return val ? JSON.parse(val) : null; }
-  catch { return null; }
+  try { const r = await window.storage.get(key); return r ? JSON.parse(r.value) : null; } catch { return null; }
 }
 async function save(key, val) {
-  try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+  try { await window.storage.set(key, JSON.stringify(val)); } catch {} }
+const toB64 = f => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
+
+// ─── Data ─────────────────────────────────────────────────────────────────────
+const CATS = [
+  { id:"all",         label:"전체" },
+  { id:"insight",     label:"인사이트",    color:"#0052CC" },
+  { id:"inspiration", label:"인스퍼레이션",color:"#6554C0" },
+  { id:"career",      label:"커리어",      color:"#00875A" },
+  { id:"study",       label:"스터디",      color:"#FF8B00" },
+  { id:"daily",       label:"하루기록",    color:"#DE350B" },
+  { id:"photo",       label:"오늘의 사진", color:"#008DA6" },
+];
+const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
+
+const DEF_PROFILE = { name:"dlwnsleejun", tagline:"기록하는 사람", bio:"일상, 생각, 그리고 순간들을 기록합니다.", avatar:"" };
+const DEF_POSTS = [
+  { id:1, cat:"insight",     title:"AI 시대, 개인이 갖춰야 할 역량",    summary:"앞으로의 시대에는 어떤 능력이 중요해질까?", date:"2026-05-04", img:"", pinned:true, body:"AI의 발전은 단순 반복 업무를 대체하고 있다." },
+  { id:2, cat:"study",       title:"React 18 주요 변경사항 정리",       summary:"Concurrent Features와 useTransition.", date:"2026-05-03", img:"", pinned:false, body:"React 18의 가장 주목할 변화." },
+  { id:3, cat:"daily",       title:"오늘도 커피 한 잔과 함께",           summary:"아침 루틴을 바꾸고 집중력 향상.", date:"2026-05-02", img:"", pinned:false, body:"작은 습관이 하루를 바꾼다." },
+  { id:4, cat:"career",      title:"첫 사이드 프로젝트 회고",            summary:"혼자 만든 첫 프로젝트에서 배운 것들.", date:"2026-05-01", img:"", pinned:false, body:"기술보다 기획이 먼저였다." },
+  { id:5, cat:"inspiration", title:"디터 람스의 좋은 디자인 10원칙",    summary:"단순함이란 본질만 남기는 것.", date:"2026-04-30", img:"", pinned:false, body:"Less but better." },
+  { id:6, cat:"photo",       title:"을지로, 오래된 골목의 감성",         summary:"우연히 들어간 골목의 사진들.", date:"2026-04-29", img:"", pinned:false, body:"낡음이 주는 온기." },
+];
+
+function fmtDate(s){ const d=new Date(s); return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; }
+
+// ─── Stock Data ───────────────────────────────────────────────────────────────
+function genCandles(base, vol, days=90) {
+  const data=[]; let price=base;
+  const now=new Date(); now.setHours(0,0,0,0);
+  for(let i=days;i>=0;i--){
+    const d=new Date(now); d.setDate(d.getDate()-i);
+    if(d.getDay()===0||d.getDay()===6) continue;
+    const change=(Math.random()-0.48)*vol;
+    const open=price;
+    const close=+(price*(1+change/100)).toFixed(2);
+    const high=+(Math.max(open,close)*(1+Math.random()*vol*0.003)).toFixed(2);
+    const low=+(Math.min(open,close)*(1-Math.random()*vol*0.003)).toFixed(2);
+    data.push({ d:d.toISOString().slice(0,10), o:open, h:high, l:low, c:close });
+    price=close;
+  }
+  return data;
 }
 
-const toBase64 = f => new Promise((res, rej) => {
-  const r = new FileReader();
-  r.onload = () => res(r.result);
-  r.onerror = rej;
-  r.readAsDataURL(f);
-});
-
-const DEF_PROFILE = { name: "dlwns", tagline: "기록하는 사람", bio: "일상, 생각, 그리고 순간들.", heroImg: "" };
-const DEF_DIARY   = [{ id:1, date:"2026-05-04", title:"첫 번째 기록", content:"오늘부터 이 공간에 나의 이야기를 담기 시작했다.", mood:"✦" }];
-const DEF_CAREER  = [
-  { id:1, year:"2024", title:"현재 포지션", org:"회사명", desc:"지금 하고 있는 일을 여기에 적어보세요." },
-  { id:2, year:"2022", title:"이전 포지션", org:"이전 회사", desc:"이전에 했던 일을 정리해보세요." },
-];
-const MOODS = ["✦","◆","●","▲","★","◎","♦","✿","⊕","◉"];
-const PAGES = [
-  { id:"home",   label:"Home",   glyph:"○" },
-  { id:"일기",    label:"일기",   glyph:"◇" },
-  { id:"사진",    label:"사진",   glyph:"□" },
-  { id:"커리어",  label:"커리어",  glyph:"△" },
-  { id:"기타",    label:"기타",   glyph:"◁" },
+const SP500_STOCKS = [
+  { ticker:"NVDA", name:"NVIDIA",    base:875,  vol:3.2, color:"#76b900" },
+  { ticker:"GOOGL",name:"Alphabet",  base:168,  vol:2.1, color:"#4285F4" },
+  { ticker:"AAPL", name:"Apple",     base:195,  vol:1.8, color:"#555" },
+  { ticker:"MSFT", name:"Microsoft", base:385,  vol:1.9, color:"#00a4ef" },
+  { ticker:"AMZN", name:"Amazon",    base:192,  vol:2.4, color:"#FF9900" },
+  { ticker:"META", name:"Meta",      base:578,  vol:2.6, color:"#0866FF" },
+  { ticker:"TSLA", name:"Tesla",     base:248,  vol:4.1, color:"#cc0000" },
+  { ticker:"BRK",  name:"Berkshire", base:418,  vol:1.2, color:"#6B4226" },
+  { ticker:"LLY",  name:"Eli Lilly", base:792,  vol:2.3, color:"#c0392b" },
+  { ticker:"JPM",  name:"JPMorgan",  base:228,  vol:1.7, color:"#1A4080" },
 ];
 
+const KOSPI_STOCKS = [
+  { ticker:"005930",name:"삼성전자",  base:58000,vol:2.4, color:"#1428A0" },
+  { ticker:"000660",name:"SK하이닉스",base:192000,vol:3.1,color:"#EA001E" },
+  { ticker:"005380",name:"현대차",    base:24500, vol:2.2, color:"#002C5F" },
+  { ticker:"051910",name:"LG화학",    base:31500, vol:2.8, color:"#A50034" },
+  { ticker:"035420",name:"NAVER",     base:19800, vol:2.3, color:"#03C75A" },
+  { ticker:"000270",name:"기아",      base:10800, vol:2.1, color:"#05141F" },
+  { ticker:"068270",name:"셀트리온",  base:18500, vol:3.4, color:"#0099CC" },
+  { ticker:"035720",name:"카카오",    base:3850,  vol:3.8, color:"#FEE500" },
+  { ticker:"028260",name:"삼성물산",  base:14200, vol:1.9, color:"#1428A0" },
+  { ticker:"003550",name:"LG",        base:6800,  vol:1.8, color:"#A50034" },
+];
+
+const SP500_DATA = SP500_STOCKS.map(s=>({ ...s, candles:genCandles(s.base,s.vol) }));
+const KOSPI_DATA = KOSPI_STOCKS.map(s=>({ ...s, candles:genCandles(s.base,s.vol) }));
+
+function genIndexCandles(stocks){
+  const len = stocks[0].candles.length;
+  return Array.from({length:len},(_,i)=>{
+    const avg = stocks.reduce((sum,s)=> sum + s.candles[i].c * (1/stocks.length), 0);
+    return { d:stocks[0].candles[i].d, c:avg };
+  });
+}
+
+const SP500_INDEX = genIndexCandles(SP500_DATA);
+const KOSPI_INDEX = genIndexCandles(KOSPI_DATA);
+
+// ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,300;0,600;1,300;1,600&display=swap');
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root { --black:#0a0a0a; --white:#f5f5f3; --gray:#666; --light:#ccc; --sidebar:220px; }
-body { font-family:'Archivo',sans-serif; background:var(--black); color:var(--white); min-height:100vh; }
-
-.layout { display:flex; min-height:100vh; }
-
-/* SIDEBAR */
-.sidebar {
-  position:fixed; left:0; top:0; bottom:0;
-  width:var(--sidebar);
-  background:var(--black);
-  border-right:1px solid #181818;
-  display:flex; flex-direction:column;
-  z-index:50;
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Montserrat:wght@600;700;800&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --primary:#0052CC;
+  --text:#111;
+  --sub:#444;
+  --muted:#777;
+  --border:#e0e0e0;
+  --bg:#f7f8fa;
+  --white:#fff;
+  --red:#DE350B;
+  --green:#00875A;
+  --radius:8px;
 }
-.sb-logo { padding:40px 28px 36px; border-bottom:1px solid #181818; }
-.sb-url { font-size:0.58rem; letter-spacing:0.2em; text-transform:uppercase; color:#333; margin-bottom:10px; }
-.sb-name { font-family:'Cormorant Garamond',serif; font-size:2rem; font-weight:600; line-height:1; color:var(--white); }
-.sb-name em { font-style:italic; font-weight:300; color:var(--gray); }
+body{font-family:'Noto Sans KR',sans-serif;color:var(--text);background:var(--white);font-size:14px;line-height:1.6;}
+button{font-family:'Noto Sans KR',sans-serif;}
 
-.sb-nav { flex:1; padding:36px 0; display:flex; flex-direction:column; gap:1px; }
+/* ── HEADER ── */
+.header{background:#fff;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:200;}
+.header-inner{max-width:1280px;margin:0 auto;display:flex;align-items:center;height:64px;padding:0 32px;gap:40px;}
+.logo{font-family:'Montserrat',sans-serif;font-weight:800;font-size:1.3rem;color:#111;cursor:pointer;letter-spacing:-0.5px;text-decoration:none;}
+.nav{display:flex;gap:0;flex:1;}
+.nav-link{padding:10px 18px;font-size:0.85rem;font-weight:500;color:var(--muted);background:none;border:none;cursor:pointer;transition:all 0.15s;border-radius:4px;}
+.nav-link:hover{color:var(--text);background:#f5f5f5;}
+.nav-link.active{color:var(--primary);font-weight:700;}
+.header-actions{display:flex;gap:8px;margin-left:auto;}
+.btn{padding:9px 18px;font-size:0.82rem;font-weight:500;border-radius:var(--radius);cursor:pointer;border:none;transition:all 0.15s;}
+.btn-outline{background:#fff;color:var(--text);border:1px solid var(--border);}
+.btn-outline:hover{border-color:#999;}
+.btn-primary{background:var(--primary);color:#fff;}
+.btn-primary:hover{background:#0043A8;}
 
-.nav-btn {
-  display:flex; align-items:center; gap:14px;
-  padding:13px 28px;
-  cursor:pointer; transition:all 0.18s;
-  position:relative; border:none; background:none;
-  width:100%; text-align:left;
-}
-.nav-btn::after {
-  content:''; position:absolute;
-  left:0; top:0; bottom:0; width:2px;
-  background:var(--white); transform:scaleY(0);
-  transition:transform 0.2s;
-}
-.nav-btn:hover::after, .nav-btn.act::after { transform:scaleY(1); }
-.nav-btn.act { background:#0f0f0f; }
-.nav-btn:hover { background:#0d0d0d; }
+/* ── HERO ── */
+.hero{background:linear-gradient(135deg,#0052CC 0%,#0066FF 50%,#3385FF 100%);padding:80px 0 100px;position:relative;overflow:hidden;}
+.hero::before{content:'';position:absolute;inset:0;background:url("data:image/svg+xml,%3Csvg width='60' height='60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h60v60H0z' fill='none'/%3E%3Cpath d='M30 15l15 15-15 15-15-15z' fill='%23fff' opacity='0.03'/%3E%3C/svg%3E");opacity:0.4;}
+.hero-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:grid;grid-template-columns:1fr 380px;gap:60px;align-items:center;position:relative;z-index:1;}
+.hero-content h1{font-family:'Montserrat',sans-serif;font-size:clamp(2.2rem,4vw,3.8rem);font-weight:800;color:#fff;line-height:1.2;margin-bottom:20px;letter-spacing:-1px;}
+.hero-content h1 span{opacity:0.8;}
+.hero-content p{font-size:1.05rem;color:rgba(255,255,255,0.85);line-height:1.8;margin-bottom:32px;max-width:520px;}
+.hero-actions{display:flex;gap:12px;}
+.btn-lg{padding:14px 32px;font-size:0.92rem;font-weight:600;}
+.btn-white{background:#fff;color:var(--primary);}
+.btn-white:hover{background:#f0f0f0;}
+.btn-outline-white{background:transparent;color:#fff;border:2px solid rgba(255,255,255,0.5);}
+.btn-outline-white:hover{border-color:#fff;background:rgba(255,255,255,0.1);}
 
-.nav-g { font-size:0.65rem; color:#333; width:12px; text-align:center; transition:color 0.18s; }
-.nav-btn.act .nav-g, .nav-btn:hover .nav-g { color:var(--white); }
-.nav-l { font-size:0.75rem; letter-spacing:0.14em; text-transform:uppercase; font-weight:400; color:#555; transition:color 0.18s; }
-.nav-btn.act .nav-l, .nav-btn:hover .nav-l { color:var(--white); }
-.nav-n { margin-left:auto; font-size:0.62rem; color:#2a2a2a; font-family:'Cormorant Garamond',serif; }
+.hero-card{background:#fff;border-radius:12px;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.15);}
+.hero-avatar{width:80px;height:80px;border-radius:50%;background:var(--primary);display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:700;color:#fff;margin:0 auto 16px;overflow:hidden;cursor:pointer;position:relative;}
+.hero-avatar img{width:100%;height:100%;object-fit:cover;}
+.hero-avatar-ov{position:absolute;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:0.7rem;color:#fff;opacity:0;transition:opacity 0.2s;}
+.hero-avatar:hover .hero-avatar-ov{opacity:1;}
+.hero-card h2{font-size:1.15rem;font-weight:700;text-align:center;margin-bottom:4px;}
+.hero-card p{font-size:0.82rem;color:var(--muted);text-align:center;margin-bottom:20px;}
+.hero-card-bio{font-size:0.85rem;color:var(--sub);line-height:1.75;padding-top:20px;border-top:1px solid var(--border);}
 
-.sb-foot { padding:24px 28px; border-top:1px solid #181818; }
-.sb-copy { font-size:0.56rem; letter-spacing:0.1em; color:#222; text-transform:uppercase; }
+/* ── STATS BAR ── */
+.stats-bar{background:#fff;border-bottom:1px solid var(--border);}
+.stats-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:grid;grid-template-columns:repeat(6,1fr);gap:0;}
+.stat{padding:24px 20px;border-right:1px solid var(--border);text-align:center;cursor:pointer;transition:background 0.15s;}
+.stat:last-child{border-right:none;}
+.stat:hover{background:#f9f9f9;}
+.stat-num{font-family:'Montserrat',sans-serif;font-size:2rem;font-weight:700;color:var(--primary);line-height:1;margin-bottom:6px;}
+.stat-label{font-size:0.75rem;color:var(--muted);font-weight:500;}
 
-/* MAIN */
-.main { margin-left:var(--sidebar); flex:1; min-height:100vh; }
+/* ── STOCK SECTION ── */
+.stock-section{background:var(--bg);padding:60px 0;border-bottom:1px solid var(--border);}
+.stock-inner{max-width:1280px;margin:0 auto;padding:0 32px;}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;}
+.section-title{font-family:'Montserrat',sans-serif;font-size:1.4rem;font-weight:700;color:#111;}
+.section-sub{font-size:0.8rem;color:var(--muted);margin-top:4px;}
+.market-tabs{display:flex;gap:8px;}
+.market-tab{padding:8px 20px;font-size:0.82rem;font-weight:600;border:2px solid var(--border);background:#fff;color:var(--text);cursor:pointer;border-radius:var(--radius);transition:all 0.15s;}
+.market-tab.active{background:var(--primary);color:#fff;border-color:var(--primary);}
 
-/* HERO */
-.hero { display:grid; grid-template-rows:1fr auto; min-height:100vh; }
-.hero-top { display:grid; grid-template-columns:1fr 1fr; min-height:calc(100vh - 110px); }
-.hero-txt {
-  display:flex; flex-direction:column; justify-content:flex-end;
-  padding:72px 56px; border-right:1px solid #181818;
-}
-.h-eye { font-size:0.6rem; letter-spacing:0.22em; text-transform:uppercase; color:#333; margin-bottom:28px; }
-.h-title {
-  font-family:'Cormorant Garamond',serif;
-  font-size:clamp(3rem,5vw,6rem);
-  font-weight:300; line-height:1.0; letter-spacing:-1px;
-  margin-bottom:36px;
-}
-.h-title em { font-style:italic; font-weight:300; color:var(--gray); display:block; }
-.h-bio { font-size:0.86rem; color:#555; line-height:1.9; max-width:300px; margin-bottom:44px; font-weight:300; letter-spacing:0.02em; }
-.h-acts { display:flex; gap:10px; }
+.index-cards{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;}
+.index-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:20px 24px;display:flex;justify-content:space-between;align-items:center;}
+.idx-info h3{font-size:0.75rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.idx-val{font-family:'Montserrat',sans-serif;font-size:1.8rem;font-weight:700;color:#111;}
+.idx-chg{font-size:0.88rem;font-weight:600;margin-top:4px;}
+.up{color:var(--red);}
+.dn{color:var(--green);}
 
-.btn-p {
-  background:var(--white); color:var(--black); border:none;
-  padding:11px 26px; font-family:'Archivo',sans-serif;
-  font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase;
-  font-weight:500; cursor:pointer; transition:background 0.18s;
-}
-.btn-p:hover { background:var(--light); }
+.chart-box{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin-bottom:24px;}
+.chart-label{font-size:0.78rem;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:16px;}
+canvas{width:100%!important;display:block;}
 
-.btn-g {
-  background:transparent; color:#555; border:1px solid #1e1e1e;
-  padding:11px 22px; font-family:'Archivo',sans-serif;
-  font-size:0.7rem; letter-spacing:0.14em; text-transform:uppercase;
-  font-weight:400; cursor:pointer; transition:all 0.18s;
-}
-.btn-g:hover { border-color:#444; color:var(--white); }
-.btn-sm { padding:8px 16px !important; font-size:0.66rem !important; }
+.stocks-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;}
+.stock-card{background:#fff;border:2px solid var(--border);border-radius:var(--radius);padding:16px;cursor:pointer;transition:all 0.2s;}
+.stock-card:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(0,82,204,0.1);}
+.stock-card.selected{border-color:var(--primary);background:#EDF2FF;}
+.stock-ticker{font-family:'Montserrat',sans-serif;font-size:0.82rem;font-weight:700;color:var(--primary);margin-bottom:2px;}
+.stock-name{font-size:0.75rem;color:var(--muted);margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.stock-price{font-family:'Montserrat',sans-serif;font-size:1rem;font-weight:700;color:#111;}
+.stock-chg{font-size:0.75rem;font-weight:600;margin-top:2px;}
+.mini-canvas{display:block;width:100%;margin-top:8px;}
 
-.btn-d {
-  background:transparent; color:#444; border:1px solid #1c1c1c;
-  padding:7px 13px; font-size:0.66rem; letter-spacing:0.08em;
-  text-transform:uppercase; cursor:pointer; font-family:'Archivo',sans-serif;
-  transition:all 0.18s;
-}
-.btn-d:hover { color:#ff4444; border-color:#ff4444; }
+/* ── CONTENT ── */
+.content-section{background:#fff;padding:60px 0;}
+.content-inner{max-width:1280px;margin:0 auto;padding:0 32px;display:grid;grid-template-columns:1fr 320px;gap:40px;}
 
-.hero-img { position:relative; overflow:hidden; background:#0d0d0d; }
-.hero-img img { width:100%; height:100%; object-fit:cover; display:block; filter:grayscale(15%); }
-.hero-img-tag {
-  position:absolute; bottom:28px; right:28px;
-  font-family:'Cormorant Garamond',serif; font-style:italic;
-  font-size:0.82rem; color:rgba(245,245,243,0.3); letter-spacing:0.04em;
-}
-.hero-up {
-  width:100%; height:100%; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:14px;
-  cursor:pointer; transition:background 0.18s;
-}
-.hero-up:hover { background:#111; }
-.up-g { font-size:1.8rem; color:#1e1e1e; }
-.up-l { font-size:0.65rem; letter-spacing:0.18em; text-transform:uppercase; color:#2a2a2a; }
+.featured{background:#fff;border:2px solid var(--border);border-radius:var(--radius);overflow:hidden;display:grid;grid-template-columns:1fr 300px;cursor:pointer;margin-bottom:28px;transition:all 0.2s;}
+.featured:hover{border-color:var(--primary);box-shadow:0 6px 24px rgba(0,0,0,0.08);}
+.featured-body{padding:32px;}
+.f-cat{font-size:0.7rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;}
+.f-title{font-size:1.3rem;font-weight:700;line-height:1.35;margin-bottom:12px;}
+.f-sum{font-size:0.9rem;color:var(--sub);line-height:1.75;margin-bottom:16px;}
+.f-meta{font-size:0.75rem;color:var(--muted);display:flex;gap:10px;align-items:center;}
+.featured-img{background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:4rem;overflow:hidden;}
+.featured-img img{width:100%;height:100%;object-fit:cover;}
 
-.hero-bot { display:grid; grid-template-columns:repeat(3,1fr); border-top:1px solid #181818; }
-.h-stat { padding:26px 36px; border-right:1px solid #181818; }
-.h-stat:last-child { border-right:none; }
-.h-stat-n { font-family:'Cormorant Garamond',serif; font-size:1.9rem; font-weight:600; letter-spacing:-1px; }
-.h-stat-l { font-size:0.6rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--gray); margin-top:3px; }
+.posts-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.post-card{background:#fff;border:2px solid var(--border);border-radius:var(--radius);overflow:hidden;cursor:pointer;transition:all 0.2s;}
+.post-card:hover{border-color:var(--primary);box-shadow:0 4px 16px rgba(0,0,0,0.08);}
+.pc-thumb{height:160px;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:2.5rem;overflow:hidden;}
+.pc-thumb img{width:100%;height:100%;object-fit:cover;}
+.pc-body{padding:16px;}
+.pc-cat{font-size:0.68rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:6px;}
+.pc-title{font-size:0.92rem;font-weight:700;line-height:1.4;margin-bottom:6px;}
+.pc-sum{font-size:0.8rem;color:var(--sub);line-height:1.65;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:10px;}
+.pc-meta{font-size:0.72rem;color:var(--muted);display:flex;justify-content:space-between;align-items:center;}
+.pc-actions{display:flex;gap:6px;opacity:0;transition:opacity 0.15s;}
+.post-card:hover .pc-actions,.featured:hover .f-actions{opacity:1;}
+.f-actions{opacity:0;transition:opacity 0.15s;}
 
-/* PAGE */
-.pg-head {
-  padding:56px 56px 40px;
-  border-bottom:1px solid #181818;
-  display:flex; align-items:flex-end; justify-content:space-between;
-}
-.pg-title { font-family:'Cormorant Garamond',serif; font-size:2.8rem; font-weight:300; letter-spacing:-0.3px; }
-.pg-title em {
-  font-style:normal; font-size:0.6rem; letter-spacing:0.2em;
-  text-transform:uppercase; color:#333; display:block; margin-bottom:8px;
-  font-family:'Archivo',sans-serif;
-}
-.pg-body { padding:40px 56px; }
+/* sidebar */
+.sidebar{display:flex;flex-direction:column;gap:20px;}
+.side-box{background:#fff;border:2px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.side-head{padding:16px 20px;border-bottom:1px solid var(--border);font-size:0.85rem;font-weight:700;display:flex;justify-content:space-between;align-items:center;}
+.side-more{font-size:0.75rem;color:var(--primary);font-weight:500;cursor:pointer;}
+.side-more:hover{text-decoration:underline;}
+.side-item{padding:14px 20px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;gap:12px;align-items:flex-start;transition:background 0.12s;}
+.side-item:last-child{border-bottom:none;}
+.side-item:hover{background:#f8f9fa;}
+.side-n{font-family:'Montserrat',sans-serif;font-size:1rem;font-weight:700;color:var(--border);width:24px;flex-shrink:0;padding-top:2px;}
+.side-t{font-size:0.82rem;font-weight:600;line-height:1.4;margin-bottom:3px;}
+.side-m{font-size:0.7rem;color:var(--muted);}
 
-/* DIARY */
-.d-list { display:flex; flex-direction:column; }
-.d-row {
-  display:grid; grid-template-columns:88px 1fr auto;
-  gap:36px; align-items:start;
-  padding:32px 0; border-bottom:1px solid #111;
-  transition:all 0.15s; position:relative;
-}
-.d-row:hover { background:#0d0d0d; margin:0 -24px; padding:32px 24px; }
-.d-date { text-align:right; padding-top:2px; }
-.d-day { font-family:'Cormorant Garamond',serif; font-size:2.5rem; font-weight:300; line-height:1; color:var(--white); }
-.d-mon { font-size:0.58rem; letter-spacing:0.16em; text-transform:uppercase; color:#444; margin-top:3px; }
-.d-sym { font-size:0.75rem; color:#2a2a2a; margin-top:10px; }
-.d-t { font-family:'Cormorant Garamond',serif; font-size:1.35rem; font-weight:400; margin-bottom:8px; }
-.d-c { font-size:0.83rem; color:#555; line-height:1.85; font-weight:300; max-width:540px; }
-.d-acts { display:flex; flex-direction:column; gap:7px; opacity:0; transition:opacity 0.18s; }
-.d-row:hover .d-acts { opacity:1; }
+.profile-box{padding:24px 20px;text-align:center;}
+.profile-mini-avatar{width:64px;height:64px;border-radius:50%;background:var(--bg);margin:0 auto 12px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;overflow:hidden;}
+.profile-mini-avatar img{width:100%;height:100%;object-fit:cover;}
+.profile-mini-name{font-weight:700;font-size:0.95rem;margin-bottom:4px;}
+.profile-mini-tag{font-size:0.78rem;color:var(--muted);}
 
-/* PHOTOS */
-.ph-grid { columns:3; column-gap:10px; }
-.ph-item { break-inside:avoid; margin-bottom:10px; overflow:hidden; position:relative; background:#0d0d0d; cursor:pointer; }
-.ph-item img { width:100%; display:block; transition:transform 0.45s,filter 0.25s; filter:grayscale(10%); }
-.ph-item:hover img { transform:scale(1.04); filter:grayscale(0%); }
-.ph-ov {
-  position:absolute; inset:0;
-  background:linear-gradient(to top,rgba(0,0,0,0.65) 0%,transparent 55%);
-  opacity:0; transition:opacity 0.28s;
-  display:flex; align-items:flex-end; padding:16px;
-}
-.ph-item:hover .ph-ov { opacity:1; }
-.ph-cap { font-size:0.75rem; color:rgba(245,245,243,0.75); letter-spacing:0.05em; font-weight:300; }
-.ph-del {
-  position:absolute; top:8px; right:8px;
-  background:rgba(0,0,0,0.65); color:#555; border:none;
-  width:26px; height:26px; font-size:0.75rem; cursor:pointer;
-  opacity:0; transition:opacity 0.18s; display:flex; align-items:center; justify-content:center;
-}
-.ph-item:hover .ph-del { opacity:1; }
-.ph-del:hover { color:#ff4444; }
-.ph-add {
-  break-inside:avoid; margin-bottom:10px; height:180px;
-  border:1px dashed #1c1c1c; display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:10px;
-  cursor:pointer; background:transparent; transition:border-color 0.18s;
-  font-family:'Archivo',sans-serif; color:#2a2a2a; width:100%;
-}
-.ph-add:hover { border-color:#333; color:#444; }
-.ph-add span { font-size:0.64rem; letter-spacing:0.14em; text-transform:uppercase; }
+.cat-box{padding:16px 20px;display:flex;flex-wrap:wrap;gap:8px;}
+.cat-chip{padding:6px 14px;border-radius:50px;font-size:0.75rem;font-weight:500;border:2px solid var(--border);color:var(--sub);cursor:pointer;background:#fff;transition:all 0.15s;}
+.cat-chip:hover{border-color:var(--primary);color:var(--primary);}
+.cat-chip.active{background:var(--primary);color:#fff;border-color:var(--primary);}
 
-/* CAREER */
-.c-list { display:flex; flex-direction:column; }
-.c-row {
-  display:grid; grid-template-columns:88px 1fr auto;
-  gap:36px; align-items:start;
-  padding:36px 0; border-bottom:1px solid #111;
-  transition:all 0.15s;
-}
-.c-row:hover { background:#0d0d0d; margin:0 -24px; padding:36px 24px; }
-.c-yr { font-family:'Cormorant Garamond',serif; font-size:0.95rem; font-weight:300; color:#444; text-align:right; padding-top:4px; }
-.c-t { font-family:'Cormorant Garamond',serif; font-size:1.4rem; font-weight:400; margin-bottom:4px; }
-.c-o { font-size:0.68rem; letter-spacing:0.14em; text-transform:uppercase; color:#444; margin-bottom:12px; }
-.c-d { font-size:0.83rem; color:#555; line-height:1.8; font-weight:300; max-width:480px; }
-.c-acts { display:flex; flex-direction:column; gap:7px; opacity:0; transition:opacity 0.18s; }
-.c-row:hover .c-acts { opacity:1; }
+/* detail */
+.detail-page{max-width:860px;margin:0 auto;padding:60px 32px;background:#fff;min-height:100vh;}
+.detail-back{font-size:0.8rem;color:var(--primary);cursor:pointer;margin-bottom:24px;display:inline-flex;align-items:center;gap:4px;font-weight:500;}
+.detail-back:hover{text-decoration:underline;}
+.detail-cat{font-size:0.7rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:10px;}
+.detail-title{font-size:2rem;font-weight:700;line-height:1.3;margin-bottom:12px;}
+.detail-meta{font-size:0.78rem;color:var(--muted);padding-bottom:24px;border-bottom:1px solid var(--border);margin-bottom:28px;display:flex;gap:12px;align-items:center;}
+.detail-img{width:100%;max-height:440px;object-fit:cover;border-radius:var(--radius);margin-bottom:28px;}
+.detail-body{font-size:1rem;line-height:2;color:#222;}
 
-/* ETC */
-.etc-g { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#181818; border:1px solid #181818; }
-.etc-c { background:var(--black); padding:44px 36px; transition:background 0.18s; }
-.etc-c:hover { background:#0d0d0d; }
-.etc-ic { font-size:1.2rem; color:#222; margin-bottom:20px; }
-.etc-t { font-family:'Cormorant Garamond',serif; font-size:1.35rem; font-weight:400; margin-bottom:8px; }
-.etc-d { font-size:0.8rem; color:#555; line-height:1.78; font-weight:300; }
-.etc-tag { margin-top:20px; font-size:0.58rem; letter-spacing:0.2em; text-transform:uppercase; color:#222; }
+.btn-sm{background:#fff;border:1px solid var(--border);padding:5px 12px;font-size:0.7rem;cursor:pointer;border-radius:4px;color:var(--text);font-weight:500;}
+.btn-sm:hover{border-color:#999;}
+.btn-del-sm{background:#fff;border:1px solid #fcc;color:var(--red);padding:5px 10px;font-size:0.7rem;cursor:pointer;border-radius:4px;font-weight:500;}
 
-/* MODAL */
-.mb { position:fixed; inset:0; background:rgba(0,0,0,0.88); z-index:200; display:flex; align-items:center; justify-content:center; padding:28px; backdrop-filter:blur(6px); }
-.mo { background:#0c0c0c; border:1px solid #1e1e1e; width:100%; max-width:540px; max-height:90vh; overflow-y:auto; padding:44px; position:relative; }
-.mo-t { font-family:'Cormorant Garamond',serif; font-size:1.9rem; font-weight:300; margin-bottom:32px; }
-.mo-x { position:absolute; top:20px; right:20px; background:none; border:none; color:#444; font-size:1.1rem; cursor:pointer; line-height:1; padding:4px 8px; }
-.mo-x:hover { color:var(--white); }
+/* modal */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;}
+.modal{background:#fff;width:100%;max-width:580px;max-height:92vh;overflow-y:auto;border-radius:var(--radius);}
+.modal-head{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1;}
+.modal-title{font-size:1rem;font-weight:700;}
+.modal-x{background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--muted);padding:2px 6px;line-height:1;}
+.modal-x:hover{color:#111;}
+.modal-body{padding:24px;}
+.modal-foot{padding:16px 24px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;}
+.fg{margin-bottom:16px;}
+.fg label{display:block;font-size:0.75rem;font-weight:600;color:var(--sub);margin-bottom:6px;}
+.fg input,.fg textarea,.fg select{width:100%;border:1px solid var(--border);padding:10px 14px;font-size:0.85rem;font-family:'Noto Sans KR',sans-serif;color:#111;outline:none;border-radius:var(--radius);transition:border-color 0.15s;resize:vertical;background:#fff;}
+.fg input:focus,.fg textarea:focus,.fg select:focus{border-color:var(--primary);}
 
-.fg { margin-bottom:20px; }
-.fg label { display:block; font-size:0.6rem; letter-spacing:0.18em; text-transform:uppercase; color:#444; font-weight:400; margin-bottom:6px; }
-.fg input, .fg textarea {
-  width:100%; background:#111; border:1px solid #1e1e1e;
-  padding:11px 14px; font-family:'Archivo',sans-serif;
-  font-size:0.86rem; color:var(--white); outline:none;
-  transition:border-color 0.18s; resize:vertical; font-weight:300;
-}
-.fg input:focus, .fg textarea:focus { border-color:#333; }
-.fg input::placeholder, .fg textarea::placeholder { color:#2a2a2a; }
+footer{border-top:1px solid var(--border);padding:32px;text-align:center;font-size:0.78rem;color:var(--muted);background:var(--bg);}
+footer b{color:var(--primary);}
 
-.mood-row { display:flex; gap:7px; flex-wrap:wrap; }
-.m-btn {
-  width:34px; height:34px; background:#111; border:1px solid #1e1e1e;
-  color:#444; cursor:pointer; font-size:0.85rem;
-  display:flex; align-items:center; justify-content:center; transition:all 0.14s;
-}
-.m-btn.sel { border-color:var(--white); color:var(--white); background:#1a1a1a; }
-.m-btn:hover { border-color:#333; }
+.empty{text-align:center;padding:80px 0;color:var(--muted);}
 
-.f-acts { display:flex; gap:10px; margin-top:32px; }
-
-/* LIGHTBOX */
-.lb { position:fixed; inset:0; background:rgba(0,0,0,0.97); z-index:300; display:flex; align-items:center; justify-content:center; }
-.lb img { max-width:90vw; max-height:90vh; object-fit:contain; }
-.lb-x { position:absolute; top:24px; right:32px; color:#444; background:none; border:none; font-size:1.5rem; cursor:pointer; font-weight:300; }
-.lb-x:hover { color:var(--white); }
-
-::-webkit-scrollbar { width:3px; }
-::-webkit-scrollbar-track { background:var(--black); }
-::-webkit-scrollbar-thumb { background:#1e1e1e; }
-
-@keyframes fadeUp { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
-.fu  { animation:fadeUp 0.45s ease both; }
-.fu1 { animation:fadeUp 0.45s 0.08s ease both; }
-.fu2 { animation:fadeUp 0.45s 0.16s ease both; }
-.fu3 { animation:fadeUp 0.45s 0.24s ease both; }
-.fu4 { animation:fadeUp 0.45s 0.32s ease both; }
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fade{animation:fadeIn 0.35s ease both;}
 `;
 
-export default function DlwnsSite() {
-  const [page, setPage]     = useState("home");
-  const [profile, setProfile] = useState(DEF_PROFILE);
-  const [diary, setDiary]   = useState([]);
-  const [photos, setPhotos] = useState([]);
-  const [career, setCareer] = useState([]);
-  const [loading, setLoading] = useState(true);
+// ─── Charts ───────────────────────────────────────────────────────────────────
+function Sparkline({ candles, color, width=120, height=32 }) {
+  const ref = useRef();
+  useEffect(()=>{
+    const c = ref.current; if(!c) return;
+    const ctx = c.getContext('2d');
+    const pts = candles.slice(-30);
+    const vals = pts.map(p=>p.c);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const pad = 2;
+    const scaleX = (width-pad*2)/(pts.length-1);
+    const scaleY = mx===mn ? 0 : (height-pad*2)/(mx-mn);
+    ctx.clearRect(0,0,width,height);
+    ctx.beginPath();
+    pts.forEach((p,i)=>{
+      const x = pad + i*scaleX;
+      const y = pad + (mx-p.c)*scaleY;
+      i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+    });
+    ctx.strokeStyle=color; ctx.lineWidth=1.8; ctx.stroke();
+  },[candles,color]);
+  return <canvas ref={ref} width={width} height={height} className="mini-canvas" style={{height:height+'px'}} />;
+}
 
-  const [modal, setModal]   = useState(null);
-  const [editing, setEditing] = useState(null);
-  const [lightbox, setLightbox] = useState(null);
+function MainChart({ candles, color }) {
+  const ref = useRef();
+  useEffect(()=>{
+    const c = ref.current; if(!c) return;
+    const ctx = c.getContext('2d');
+    const W=c.offsetWidth||900, H=220;
+    c.width=W; c.height=H;
+    const pts = candles;
+    const vals = pts.map(p=>p.c);
+    const mn = Math.min(...vals)*0.998, mx = Math.max(...vals)*1.002;
+    const padL=60, padR=20, padT=20, padB=32;
+    const W2=W-padL-padR, H2=H-padT-padB;
+    ctx.clearRect(0,0,W,H);
+    // grid
+    ctx.strokeStyle='#f0f0f0'; ctx.lineWidth=1;
+    for(let i=0;i<=4;i++){
+      const y=padT+H2*(1-i/4);
+      ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+      const val=mn+(mx-mn)*(i/4);
+      ctx.fillStyle='#999'; ctx.font='11px Montserrat'; ctx.textAlign='right';
+      ctx.fillText(val>=1000?Math.round(val).toLocaleString():val.toFixed(2),padL-6,y+4);
+    }
+    // x labels
+    const step=Math.floor(pts.length/7);
+    pts.forEach((p,i)=>{
+      if(i%step===0){
+        const x=padL+W2*(i/(pts.length-1));
+        ctx.fillStyle='#aaa'; ctx.font='10px Noto Sans KR'; ctx.textAlign='center';
+        ctx.fillText(p.d.slice(5),x,H-8);
+      }
+    });
+    // fill
+    const grad=ctx.createLinearGradient(0,padT,0,H-padB);
+    grad.addColorStop(0,color+'33'); grad.addColorStop(1,color+'00');
+    ctx.beginPath();
+    pts.forEach((p,i)=>{
+      const x=padL+W2*(i/(pts.length-1));
+      const y=padT+H2*(1-(p.c-mn)/(mx-mn));
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.lineTo(padL+W2,H-padB); ctx.lineTo(padL,H-padB); ctx.closePath();
+    ctx.fillStyle=grad; ctx.fill();
+    // line
+    ctx.beginPath();
+    pts.forEach((p,i)=>{
+      const x=padL+W2*(i/(pts.length-1));
+      const y=padT+H2*(1-(p.c-mn)/(mx-mn));
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    });
+    ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.stroke();
+  },[candles,color]);
+  return <canvas ref={ref} style={{width:'100%',height:'220px',display:'block'}} />;
+}
 
-  const [dF, setDF] = useState({ title:"", content:"", mood:"✦", date: new Date().toISOString().slice(0,10) });
-  const [pF, setPF] = useState({ src:"", caption:"" });
-  const [cF, setCF] = useState({ year:"", title:"", org:"", desc:"" });
-  const [prF, setPrF] = useState({ ...DEF_PROFILE });
+// ═════════════════════════════════════════════════════════════════════════════
+export default function App() {
+  const [posts,setPosts] = useState([]);
+  const [profile,setProfile] = useState(DEF_PROFILE);
+  const [activeCat,setCat] = useState("all");
+  const [modal,setModal] = useState(null);
+  const [editing,setEditing] = useState(null);
+  const [detail,setDetail] = useState(null);
+  const [loading,setLoading] = useState(true);
+  const [market,setMarket] = useState("sp500");
+  const [selStock,setSelStock] = useState(0);
+  const [form,setForm] = useState({title:"",summary:"",cat:"insight",body:"",img:"",pinned:false});
+  const [prForm,setPrForm] = useState({...DEF_PROFILE});
+  const imgRef=useRef(); const avatarRef=useRef();
 
-  const heroRef  = useRef();
-  const photoRef = useRef();
-
-  useEffect(() => {
-    (async () => {
-      const [p,d,ph,c] = await Promise.all([load(K.profile),load(K.diary),load(K.photos),load(K.career)]);
-      if (p) setProfile(p);
-      setDiary(d || DEF_DIARY);
-      setPhotos(ph || []);
-      setCareer(c || DEF_CAREER);
+  useEffect(()=>{
+    (async()=>{
+      const [p,ps]=await Promise.all([load(K.profile),load(K.posts)]);
+      if(p) setProfile(p);
+      setPosts(ps||DEF_POSTS);
       setLoading(false);
     })();
-  }, []);
+  },[]);
 
-  const saveDiary = async () => {
-    const u = editing ? diary.map(x=>x.id===editing.id?{...x,...dF}:x) : [{id:Date.now(),...dF},...diary];
-    setDiary(u); await save(K.diary,u);
+  const filtered = activeCat==="all" ? posts : posts.filter(p=>p.cat===activeCat);
+  const pinned = filtered.find(p=>p.pinned)||filtered[0];
+  const rest = filtered.filter(p=>p!==pinned);
+  const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
+
+  const stocks = market==="sp500" ? SP500_DATA : KOSPI_DATA;
+  const indexCandles = market==="sp500" ? SP500_INDEX : KOSPI_INDEX;
+  const cur = stocks[selStock];
+  const curLast = cur.candles[cur.candles.length-1].c;
+  const curPrev = cur.candles[cur.candles.length-2].c;
+  const curChg = ((curLast-curPrev)/curPrev*100).toFixed(2);
+  const idxLast = indexCandles[indexCandles.length-1].c;
+  const idxPrev = indexCandles[indexCandles.length-2].c;
+  const idxChg = ((idxLast-idxPrev)/idxPrev*100).toFixed(2);
+
+  const savePost = async()=>{
+    const today=new Date().toISOString().slice(0,10);
+    const u = editing ? posts.map(p=>p.id===editing.id?{...p,...form}:p) : [{id:Date.now(),...form,date:today},...posts];
+    setPosts(u); await save(K.posts,u);
     setModal(null); setEditing(null);
-    setDF({title:"",content:"",mood:"✦",date:new Date().toISOString().slice(0,10)});
+    setForm({title:"",summary:"",cat:"insight",body:"",img:"",pinned:false});
   };
-  const delDiary = async id => { const u=diary.filter(x=>x.id!==id); setDiary(u); await save(K.diary,u); };
+  const delPost=async(id)=>{ const u=posts.filter(p=>p.id!==id); setPosts(u); await save(K.posts,u); if(detail?.id===id) setDetail(null); };
+  const openEdit=p=>{ setEditing(p); setForm({title:p.title,summary:p.summary,cat:p.cat,body:p.body||"",img:p.img||"",pinned:p.pinned||false}); setModal('write'); };
+  const saveProfile=async()=>{ setProfile(prForm); await save(K.profile,prForm); setModal(null); };
+  const handleImg=async e=>{ const f=e.target.files[0]; if(!f)return; setForm({...form,img:await toB64(f)}); };
+  const handleAvatar=async e=>{ const f=e.target.files[0]; if(!f)return; const u={...profile,avatar:await toB64(f)}; setProfile(u); await save(K.profile,u); };
 
-  const handlePhotoFile = async e => {
-    const f=e.target.files[0]; if(!f) return;
-    setPF({...pF, src: await toBase64(f)});
-  };
-  const savePhoto = async () => {
-    if(!pF.src) return;
-    const u=[{id:Date.now(),...pF},...photos];
-    setPhotos(u); await save(K.photos,u);
-    setModal(null); setPF({src:"",caption:""});
-  };
-  const delPhoto = async id => { const u=photos.filter(x=>x.id!==id); setPhotos(u); await save(K.photos,u); };
+  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',photo:'📷'};
 
-  const saveCareer = async () => {
-    const u = editing ? career.map(x=>x.id===editing.id?{...x,...cF}:x) : [{id:Date.now(),...cF},...career];
-    setCareer(u); await save(K.career,u);
-    setModal(null); setEditing(null); setCF({year:"",title:"",org:"",desc:""});
-  };
-  const delCareer = async id => { const u=career.filter(x=>x.id!==id); setCareer(u); await save(K.career,u); };
+  if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
-  const saveProfile = async () => { setProfile(prF); await save(K.profile,prF); setModal(null); };
+  return (<>
+    <style>{CSS}</style>
 
-  const handleHeroImg = async e => {
-    const f=e.target.files[0]; if(!f) return;
-    const u={...profile, heroImg: await toBase64(f)};
-    setProfile(u); await save(K.profile,u);
-  };
+    {/* ── HEADER ── */}
+    <header className="header">
+      <div className="header-inner">
+        <a className="logo" onClick={()=>{setDetail(null);setModal(null);setCat("all");}}>dlwnsleejun</a>
+        <nav className="nav">
+          {CATS.map(c=><button key={c.id} className={`nav-link ${activeCat===c.id?'active':''}`} onClick={()=>{setCat(c.id);setDetail(null);}}>{c.label}</button>)}
+        </nav>
+        <div className="header-actions">
+          <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
+          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",body:"",img:"",pinned:false});setModal('write');}}>+ 글쓰기</button>
+        </div>
+      </div>
+    </header>
 
-  const openEditDiary  = item => { setEditing(item); setDF({title:item.title,content:item.content,mood:item.mood,date:item.date}); setModal('diary'); };
-  const openEditCareer = item => { setEditing(item); setCF({year:item.year,title:item.title,org:item.org,desc:item.desc}); setModal('career'); };
-
-  if (loading) return (
-    <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',background:'#0a0a0a',color:'#222',fontFamily:'serif',letterSpacing:'0.2em',fontSize:'0.7rem',textTransform:'uppercase'}}>
-      Loading
-    </div>
-  );
-
-  return (
-    <>
-      <style>{CSS}</style>
-      <div className="layout">
-
-        {/* ── SIDEBAR ── */}
-        <aside className="sidebar">
-          <div className="sb-logo">
-            <div className="sb-url">www.dlwns.me</div>
-            <div className="sb-name">dl<em>wns</em></div>
+    {/* ── DETAIL ── */}
+    {detail && !modal && (
+      <div className="fade">
+        <div className="detail-page">
+          <div className="detail-back" onClick={()=>setDetail(null)}>← 목록으로</div>
+          <div className="detail-cat" style={{color:CAT[detail.cat]?.color}}>{CAT[detail.cat]?.label}</div>
+          <h1 className="detail-title">{detail.title}</h1>
+          <div className="detail-meta">
+            <span>{fmtDate(detail.date)}</span>
+            <button className="btn-sm" onClick={()=>openEdit(detail)}>수정</button>
+            <button className="btn-del-sm" onClick={()=>delPost(detail.id)}>삭제</button>
           </div>
-          <nav className="sb-nav">
-            {PAGES.map(p => (
-              <button key={p.id} className={`nav-btn ${page===p.id?'act':''}`} onClick={()=>setPage(p.id)}>
-                <span className="nav-g">{p.glyph}</span>
-                <span className="nav-l">{p.label}</span>
-                {p.id==='일기'   && <span className="nav-n">{String(diary.length).padStart(2,'0')}</span>}
-                {p.id==='사진'   && <span className="nav-n">{String(photos.length).padStart(2,'0')}</span>}
-                {p.id==='커리어' && <span className="nav-n">{String(career.length).padStart(2,'0')}</span>}
-              </button>
-            ))}
-          </nav>
-          <div className="sb-foot">
-            <div className="sb-copy">© 2026 www.dlwns.me</div>
+          {detail.img && <img className="detail-img" src={detail.img} alt=""/>}
+          <div className="detail-body">{detail.body||detail.summary}</div>
+        </div>
+      </div>
+    )}
+
+    {!detail && (<>
+      {/* ── HERO ── */}
+      <section className="hero">
+        <div className="hero-inner">
+          <div className="hero-content">
+            <h1>나의 생각과 기록을<br/><span>담는 공간</span></h1>
+            <p>일상, 인사이트, 그리고 배움을 기록하며 성장하는 개인 블로그입니다. 지금 바로 새로운 글을 작성해보세요.</p>
+            <div className="hero-actions">
+              <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",body:"",img:"",pinned:false});setModal('write');}}>+ 새 글 작성</button>
+              <button className="btn btn-lg btn-outline-white" onClick={()=>setCat("all")}>전체 글 보기</button>
+            </div>
           </div>
-        </aside>
+          <div className="hero-card">
+            <div className="hero-avatar" onClick={()=>avatarRef.current.click()}>
+              {profile.avatar?<img src={profile.avatar} alt=""/>:profile.name[0]?.toUpperCase()}
+              <div className="hero-avatar-ov">변경</div>
+              <input ref={avatarRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleAvatar}/>
+            </div>
+            <h2>{profile.name}</h2>
+            <p>{profile.tagline}</p>
+            <div className="hero-card-bio">{profile.bio}</div>
+          </div>
+        </div>
+      </section>
 
-        {/* ── MAIN ── */}
-        <main className="main">
+      {/* ── STATS BAR ── */}
+      <div className="stats-bar">
+        <div className="stats-inner">
+          {CATS.slice(1).map(c=>(
+            <div className="stat" key={c.id} onClick={()=>setCat(c.id)}>
+              <div className="stat-num">{posts.filter(p=>p.cat===c.id).length}</div>
+              <div className="stat-label">{c.label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-          {/* HOME */}
-          {page==='home' && (
-            <div className="hero fu">
-              <div className="hero-top">
-                <div className="hero-txt">
-                  <p className="h-eye fu1">Personal Space — www.dlwns.me</p>
-                  <h1 className="h-title fu2">
-                    {profile.name}
-                    <em>{profile.tagline}</em>
-                  </h1>
-                  <p className="h-bio fu3">{profile.bio}</p>
-                  <div className="h-acts fu4">
-                    <button className="btn-p" onClick={()=>setPage('일기')}>일기 보기</button>
-                    <button className="btn-g" onClick={()=>{setPrF({...profile});setModal('profile');}}>프로필 편집</button>
+      {/* ── STOCK SECTION ── */}
+      <section className="stock-section">
+        <div className="stock-inner">
+          <div className="section-head">
+            <div>
+              <div className="section-title">마켓 인사이트</div>
+              <div className="section-sub">실시간 시뮬레이션 데이터 (90일 차트)</div>
+            </div>
+            <div className="market-tabs">
+              <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
+              <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
+            </div>
+          </div>
+
+          <div className="index-cards">
+            <div className="index-card">
+              <div className="idx-info">
+                <h3>{market==='sp500'?'S&P 500 Index':'KOSPI Index'}</h3>
+                <div className="idx-val">{market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()}</div>
+                <div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>{parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%</div>
+              </div>
+            </div>
+            <div className="index-card">
+              <div className="idx-info">
+                <h3>선택 종목: {cur.ticker}</h3>
+                <div className="idx-val">{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</div>
+                <div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="chart-box">
+            <div className="chart-label">{cur.name} ({cur.ticker}) — 최근 90일</div>
+            <MainChart key={`${market}-${selStock}`} candles={cur.candles} color={cur.color} />
+          </div>
+
+          <div className="stocks-grid">
+            {stocks.map((s,i)=>{
+              const last=s.candles[s.candles.length-1].c;
+              const prev=s.candles[s.candles.length-2].c;
+              const chg=((last-prev)/prev*100).toFixed(2);
+              const up=parseFloat(chg)>=0;
+              return (
+                <div key={s.ticker} className={`stock-card ${selStock===i?'selected':''}`} onClick={()=>setSelStock(i)}>
+                  <div className="stock-ticker" style={{color:s.color}}>{s.ticker}</div>
+                  <div className="stock-name">{s.name}</div>
+                  <div className="stock-price">{market==='sp500'?'$':''}{last>=1000?Math.round(last).toLocaleString():last.toFixed(2)}</div>
+                  <div className={`stock-chg ${up?'up':'dn'}`}>{up?'▲':'▼'} {Math.abs(chg)}%</div>
+                  <Sparkline candles={s.candles} color={up?'#DE350B':'#00875A'} width={140} height={32}/>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── CONTENT ── */}
+      <section className="content-section">
+        <div className="content-inner fade">
+          <div>
+            {pinned && (
+              <div className="featured" onClick={()=>setDetail(pinned)}>
+                <div className="featured-body">
+                  <div className="f-cat" style={{color:CAT[pinned.cat]?.color}}>{CAT[pinned.cat]?.label}</div>
+                  <div className="f-title">{pinned.title}</div>
+                  <div className="f-sum">{pinned.summary}</div>
+                  <div className="f-meta">
+                    <span>{fmtDate(pinned.date)}</span>
+                    <div className="f-actions" onClick={e=>e.stopPropagation()} style={{display:'flex',gap:6}}>
+                      <button className="btn-sm" onClick={()=>openEdit(pinned)}>수정</button>
+                      <button className="btn-del-sm" onClick={()=>delPost(pinned.id)}>삭제</button>
+                    </div>
                   </div>
                 </div>
-                <div className="hero-img">
-                  {profile.heroImg ? (
-                    <>
-                      <img src={profile.heroImg} alt="hero"/>
-                      <div className="hero-img-tag">{profile.name}</div>
-                      <button className="btn-g btn-sm" style={{position:'absolute',bottom:24,right:24,background:'rgba(0,0,0,0.5)'}} onClick={()=>heroRef.current.click()}>변경</button>
-                    </>
-                  ) : (
-                    <div className="hero-up" onClick={()=>heroRef.current.click()}>
-                      <div className="up-g">⊕</div>
-                      <div className="up-l">대표 사진 업로드</div>
-                    </div>
-                  )}
-                  <input ref={heroRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleHeroImg}/>
-                </div>
+                <div className="featured-img">{pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}</div>
               </div>
-              <div className="hero-bot">
-                {[{n:diary.length,l:'일기'},{n:photos.length,l:'사진'},{n:career.length,l:'커리어'}].map(s=>(
-                  <div className="h-stat" key={s.l}>
-                    <div className="h-stat-n">{String(s.n).padStart(2,'0')}</div>
-                    <div className="h-stat-l">{s.l}</div>
+            )}
+            {rest.length>0?(
+              <div className="posts-grid">
+                {rest.map(p=>(
+                  <div key={p.id} className="post-card" onClick={()=>setDetail(p)}>
+                    <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}</div>
+                    <div className="pc-body">
+                      <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
+                      <div className="pc-title">{p.title}</div>
+                      <div className="pc-sum">{p.summary}</div>
+                      <div className="pc-meta">
+                        <span>{fmtDate(p.date)}</span>
+                        <div className="pc-actions" onClick={e=>e.stopPropagation()}>
+                          <button className="btn-sm" onClick={()=>openEdit(p)}>수정</button>
+                          <button className="btn-del-sm" onClick={()=>delPost(p.id)}>삭제</button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ):!pinned&&<div className="empty">📝<br/><br/>아직 글이 없어요. 첫 번째 글을 작성해보세요!</div>}
+          </div>
 
-          {/* 일기 */}
-          {page==='일기' && (
-            <div className="fu">
-              <div className="pg-head">
-                <div className="pg-title"><em>Personal Archive</em>일기</div>
-                <button className="btn-p btn-sm" onClick={()=>{setEditing(null);setDF({title:"",content:"",mood:"✦",date:new Date().toISOString().slice(0,10)});setModal('diary');}}>+ 새 일기</button>
-              </div>
-              <div className="pg-body">
-                <div className="d-list">
-                  {diary.map(item => {
-                    const d=new Date(item.date);
-                    return (
-                      <div className="d-row" key={item.id}>
-                        <div className="d-date">
-                          <div className="d-day">{String(d.getDate()).padStart(2,'0')}</div>
-                          <div className="d-mon">{d.toLocaleString('ko-KR',{month:'short'})} {d.getFullYear()}</div>
-                          <div className="d-sym">{item.mood}</div>
-                        </div>
-                        <div>
-                          <div className="d-t">{item.title}</div>
-                          <div className="d-c">{item.content}</div>
-                        </div>
-                        <div className="d-acts">
-                          <button className="btn-g btn-sm" onClick={()=>openEditDiary(item)}>수정</button>
-                          <button className="btn-d" onClick={()=>delDiary(item.id)}>삭제</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {diary.length===0 && <p style={{color:'#2a2a2a',fontSize:'0.78rem',letterSpacing:'0.12em',padding:'60px 0',textAlign:'center'}}>첫 일기를 써보세요</p>}
+          {/* sidebar */}
+          <aside className="sidebar">
+            <div className="side-box">
+              <div className="profile-box">
+                <div className="profile-mini-avatar">
+                  {profile.avatar?<img src={profile.avatar} alt="" />:profile.name[0]?.toUpperCase()}
                 </div>
+                <div className="profile-mini-name">{profile.name}</div>
+                <div className="profile-mini-tag">{profile.tagline}</div>
               </div>
             </div>
-          )}
 
-          {/* 사진 */}
-          {page==='사진' && (
-            <div className="fu">
-              <div className="pg-head">
-                <div className="pg-title"><em>Moments</em>사진</div>
-                <button className="btn-p btn-sm" onClick={()=>setModal('photo')}>+ 사진 추가</button>
-              </div>
-              <div className="pg-body">
-                <div className="ph-grid">
-                  {photos.map(p=>(
-                    <div className="ph-item" key={p.id}>
-                      <img src={p.src} alt={p.caption} onClick={()=>setLightbox(p.src)}/>
-                      <div className="ph-ov" onClick={()=>setLightbox(p.src)}>
-                        {p.caption && <span className="ph-cap">{p.caption}</span>}
-                      </div>
-                      <button className="ph-del" onClick={()=>delPhoto(p.id)}>✕</button>
-                    </div>
-                  ))}
-                  <button className="ph-add" onClick={()=>setModal('photo')}>
-                    <span style={{fontSize:'1.2rem',color:'#1e1e1e'}}>+</span>
-                    <span>사진 추가</span>
+            <div className="side-box">
+              <div className="side-head">최근 게시글 <span className="side-more" onClick={()=>setCat("all")}>전체보기</span></div>
+              {recent.map((p,i)=>(
+                <div key={p.id} className="side-item" onClick={()=>setDetail(p)}>
+                  <div className="side-n">{String(i+1).padStart(2,'0')}</div>
+                  <div>
+                    <div className="side-t">{p.title}</div>
+                    <div className="side-m" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label} · {fmtDate(p.date)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="side-box">
+              <div className="side-head">카테고리</div>
+              <div className="cat-box">
+                {CATS.slice(1).map(c=>(
+                  <button key={c.id} className={`cat-chip ${activeCat===c.id?'active':''}`} onClick={()=>setCat(c.id)}>
+                    {c.label} <span style={{fontWeight:700}}>{posts.filter(p=>p.cat===c.id).length}</span>
                   </button>
-                </div>
-                {photos.length===0 && <p style={{color:'#2a2a2a',fontSize:'0.78rem',letterSpacing:'0.12em',padding:'40px 0',textAlign:'center'}}>첫 번째 사진을 업로드해보세요</p>}
+                ))}
               </div>
             </div>
-          )}
+          </aside>
+        </div>
+      </section>
+    </>)}
 
-          {/* 커리어 */}
-          {page==='커리어' && (
-            <div className="fu">
-              <div className="pg-head">
-                <div className="pg-title"><em>Work & Experience</em>커리어</div>
-                <button className="btn-p btn-sm" onClick={()=>{setEditing(null);setCF({year:"",title:"",org:"",desc:""});setModal('career');}}>+ 추가</button>
-              </div>
-              <div className="pg-body">
-                <div className="c-list">
-                  {career.map(item=>(
-                    <div className="c-row" key={item.id}>
-                      <div className="c-yr">{item.year}</div>
-                      <div>
-                        <div className="c-t">{item.title}</div>
-                        <div className="c-o">{item.org}</div>
-                        <div className="c-d">{item.desc}</div>
-                      </div>
-                      <div className="c-acts">
-                        <button className="btn-g btn-sm" onClick={()=>openEditCareer(item)}>수정</button>
-                        <button className="btn-d" onClick={()=>delCareer(item.id)}>삭제</button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+    <footer><b>dlwnsleejun.com</b> — 나만의 기록 공간</footer>
+
+    {/* WRITE MODAL */}
+    {modal==='write'&&(
+      <div className="modal-bg" onClick={()=>setModal(null)}>
+        <div className="modal" onClick={e=>e.stopPropagation()}>
+          <div className="modal-head">
+            <div className="modal-title">{editing?'글 수정':'새 글 작성'}</div>
+            <button className="modal-x" onClick={()=>setModal(null)}>✕</button>
+          </div>
+          <div className="modal-body">
+            <div className="fg"><label>카테고리</label>
+              <select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value})}>
+                {CATS.slice(1).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
             </div>
-          )}
-
-          {/* 기타 */}
-          {page==='기타' && (
-            <div className="fu">
-              <div className="pg-head">
-                <div className="pg-title"><em>Miscellaneous</em>기타</div>
+            <div className="fg"><label>제목</label><input type="text" value={form.title} placeholder="제목을 입력하세요" onChange={e=>setForm({...form,title:e.target.value})}/></div>
+            <div className="fg"><label>요약</label><textarea rows={2} value={form.summary} placeholder="한 줄 요약" onChange={e=>setForm({...form,summary:e.target.value})}/></div>
+            <div className="fg"><label>본문</label><textarea rows={6} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
+            <div className="fg">
+              <label>대표 이미지</label>
+              <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.78rem'}} onClick={()=>imgRef.current.click()}>파일 선택</button>
+                {form.img&&<span style={{fontSize:'0.72rem',color:'var(--green)'}}>✓ 업로드됨</span>}
               </div>
-              <div className="pg-body">
-                <div className="etc-g">
-                  {[
-                    {ic:"◎",t:"독서 기록",d:"읽은 책들을 기록하고 생각을 남겨보세요."},
-                    {ic:"♩",t:"플레이리스트",d:"요즘 듣는 음악들과 그 순간의 감정."},
-                    {ic:"◈",t:"여행 기록",d:"다녀온 곳, 보고 싶은 곳들의 기록."},
-                    {ic:"◇",t:"아이디어 노트",d:"스치는 생각들을 빠르게 적어두는 공간."},
-                  ].map(c=>(
-                    <div className="etc-c" key={c.t}>
-                      <div className="etc-ic">{c.ic}</div>
-                      <div className="etc-t">{c.t}</div>
-                      <div className="etc-d">{c.d}</div>
-                      <div className="etc-tag">Coming soon</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:160,objectFit:'cover',marginTop:10,borderRadius:6}}/>}
+              <input ref={imgRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImg}/>
             </div>
-          )}
-
-        </main>
+            <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
+              <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
+              <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.85rem'}}>대표 글로 상단에 고정</label>
+            </div>
+          </div>
+          <div className="modal-foot">
+            <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
+            <button className="btn btn-primary" onClick={savePost} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
+          </div>
+        </div>
       </div>
+    )}
 
-      {/* MODALS */}
-      {modal==='diary' && (
-        <div className="mb" onClick={()=>setModal(null)}>
-          <div className="mo" onClick={e=>e.stopPropagation()}>
-            <button className="mo-x" onClick={()=>setModal(null)}>✕</button>
-            <div className="mo-t">{editing?'일기 수정':'새 일기'}</div>
-            <div className="fg"><label>날짜</label><input type="date" value={dF.date} onChange={e=>setDF({...dF,date:e.target.value})}/></div>
-            <div className="fg">
-              <label>기호</label>
-              <div className="mood-row">{MOODS.map(m=><button key={m} className={`m-btn ${dF.mood===m?'sel':''}`} onClick={()=>setDF({...dF,mood:m})}>{m}</button>)}</div>
-            </div>
-            <div className="fg"><label>제목</label><input type="text" value={dF.title} placeholder="오늘의 제목" onChange={e=>setDF({...dF,title:e.target.value})}/></div>
-            <div className="fg"><label>내용</label><textarea rows={6} value={dF.content} placeholder="오늘 하루를 기록해보세요…" onChange={e=>setDF({...dF,content:e.target.value})}/></div>
-            <div className="f-acts"><button className="btn-p" onClick={saveDiary}>저장</button><button className="btn-g" onClick={()=>setModal(null)}>취소</button></div>
+    {/* PROFILE MODAL */}
+    {modal==='profile'&&(
+      <div className="modal-bg" onClick={()=>setModal(null)}>
+        <div className="modal" onClick={e=>e.stopPropagation()}>
+          <div className="modal-head">
+            <div className="modal-title">프로필 편집</div>
+            <button className="modal-x" onClick={()=>setModal(null)}>✕</button>
           </div>
-        </div>
-      )}
-
-      {modal==='photo' && (
-        <div className="mb" onClick={()=>setModal(null)}>
-          <div className="mo" onClick={e=>e.stopPropagation()}>
-            <button className="mo-x" onClick={()=>setModal(null)}>✕</button>
-            <div className="mo-t">사진 추가</div>
-            <div className="fg">
-              <label>사진 선택</label>
-              <div style={{display:'flex',alignItems:'center',gap:14}}>
-                <button className="btn-g btn-sm" onClick={()=>photoRef.current.click()}>파일 선택</button>
-                {pF.src && <span style={{fontSize:'0.64rem',letterSpacing:'0.1em',color:'#444',textTransform:'uppercase'}}>완료</span>}
-              </div>
-              {pF.src && <img src={pF.src} alt="" style={{width:'100%',maxHeight:200,objectFit:'cover',marginTop:14,filter:'grayscale(10%)'}}/>}
-              <input ref={photoRef} type="file" accept="image/*" style={{display:'none'}} onChange={handlePhotoFile}/>
-            </div>
-            <div className="fg"><label>캡션 (선택)</label><input type="text" value={pF.caption} placeholder="이 사진에 대해 한 마디" onChange={e=>setPF({...pF,caption:e.target.value})}/></div>
-            <div className="f-acts">
-              <button className="btn-p" onClick={savePhoto} style={{opacity:pF.src?1:0.35}}>저장</button>
-              <button className="btn-g" onClick={()=>setModal(null)}>취소</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modal==='career' && (
-        <div className="mb" onClick={()=>setModal(null)}>
-          <div className="mo" onClick={e=>e.stopPropagation()}>
-            <button className="mo-x" onClick={()=>setModal(null)}>✕</button>
-            <div className="mo-t">{editing?'수정':'커리어 추가'}</div>
-            {[['year','연도'],['title','직함 / 역할'],['org','회사 / 기관']].map(([k,lb])=>(
-              <div className="fg" key={k}><label>{lb}</label><input type="text" value={cF[k]} onChange={e=>setCF({...cF,[k]:e.target.value})}/></div>
-            ))}
-            <div className="fg"><label>설명</label><textarea rows={4} value={cF.desc} onChange={e=>setCF({...cF,desc:e.target.value})}/></div>
-            <div className="f-acts"><button className="btn-p" onClick={saveCareer}>저장</button><button className="btn-g" onClick={()=>setModal(null)}>취소</button></div>
-          </div>
-        </div>
-      )}
-
-      {modal==='profile' && (
-        <div className="mb" onClick={()=>setModal(null)}>
-          <div className="mo" onClick={e=>e.stopPropagation()}>
-            <button className="mo-x" onClick={()=>setModal(null)}>✕</button>
-            <div className="mo-t">프로필 편집</div>
+          <div className="modal-body">
             {[['name','이름'],['tagline','한 줄 소개'],['bio','상세 소개']].map(([k,lb])=>(
-              <div className="fg" key={k}><label>{lb}</label><input type="text" value={prF[k]} onChange={e=>setPrF({...prF,[k]:e.target.value})}/></div>
+              <div className="fg" key={k}><label>{lb}</label><input type="text" value={prForm[k]} onChange={e=>setPrForm({...prForm,[k]:e.target.value})}/></div>
             ))}
-            <div className="f-acts"><button className="btn-p" onClick={saveProfile}>저장</button><button className="btn-g" onClick={()=>setModal(null)}>취소</button></div>
+          </div>
+          <div className="modal-foot">
+            <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
+            <button className="btn btn-primary" onClick={saveProfile}>저장</button>
           </div>
         </div>
-      )}
-
-      {lightbox && (
-        <div className="lb" onClick={()=>setLightbox(null)}>
-          <button className="lb-x" onClick={()=>setLightbox(null)}>✕</button>
-          <img src={lightbox} alt="" onClick={e=>e.stopPropagation()}/>
-        </div>
-      )}
-    </>
-  );
+      </div>
+    )}
+  </>);
 }
