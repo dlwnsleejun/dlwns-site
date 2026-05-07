@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── Supabase Config ──────────────────────────────────────────────────────────
-// ⚠️  아래 두 줄에 본인의 Supabase 정보를 입력하세요
-const SUPA_URL = "https://https://uxqbfbjniweabkecfhjp.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE";
+// ⚠️  【필수】 아래 두 줄을 본인의 Supabase 실제 값으로 교체하세요
+// Supabase 대시보드 → Settings → API 에서 확인
+const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co"; // ← 실제 Project URL
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE"; // ← 실제 anon public key
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
@@ -140,30 +141,38 @@ function sliceByCalendarDays(candles, calendarDays) {
   return candles.filter(c => new Date(c.d) >= cutoff);
 }
 
-// Stooq CSV API로 실제 주가 데이터 가져오기 (CORS 프록시 복수 시도)
-async function fetchStooqCSV(symbol) {
-  // 여러 프록시를 순서대로 시도
-  const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&i=d`;
-  const proxies = [
-    `https://corsproxy.io/?${encodeURIComponent(stooqUrl)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(stooqUrl)}`,
-    `https://cors-anywhere.herokuapp.com/${stooqUrl}`,
-  ];
-  for (const proxy of proxies) {
+// ─── Yahoo Finance Chart API (CORS 문제 없음, 실시간 데이터) ────────────────
+async function fetchYahooChart(symbol, range = "1y") {
+  // Yahoo Finance v8 chart API - 브라우저에서 직접 호출 가능
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&includePrePost=false`;
+  const fallbackUrl = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&includePrePost=false`;
+  for (const endpoint of [url, fallbackUrl]) {
     try {
-      const r = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+      const r = await fetch(endpoint, {
+        headers: { "Accept": "application/json" },
+        signal: AbortSignal.timeout(10000)
+      });
       if (!r.ok) continue;
-      const text = await r.text();
-      if (!text || text.includes('<html') || text.includes('No data')) continue;
-      const lines = text.trim().split('\n');
-      if (lines.length < 3) continue;
-      const data = lines.slice(1).map(line => {
-        const parts = line.split(',');
-        if (parts.length < 5) return null;
-        const [d, o, h, l, c] = parts;
-        const close = parseFloat(c);
-        if (!d || !d.match(/^\d{4}-\d{2}-\d{2}$/) || isNaN(close) || close <= 0) return null;
-        return { d: d.trim(), o: parseFloat(o), h: parseFloat(h), l: parseFloat(l), c: close };
+      const json = await r.json();
+      const result = json?.chart?.result?.[0];
+      if (!result) continue;
+      const timestamps = result.timestamp;
+      const closes = result.indicators?.quote?.[0]?.close;
+      const opens  = result.indicators?.quote?.[0]?.open;
+      const highs  = result.indicators?.quote?.[0]?.high;
+      const lows   = result.indicators?.quote?.[0]?.low;
+      if (!timestamps || !closes) continue;
+      const data = timestamps.map((ts, i) => {
+        const c = closes[i];
+        if (!c || isNaN(c)) return null;
+        const d = new Date(ts * 1000).toISOString().slice(0, 10);
+        return {
+          d,
+          o: opens?.[i] || c,
+          h: highs?.[i] || c,
+          l: lows?.[i] || c,
+          c: parseFloat(c.toFixed(4))
+        };
       }).filter(Boolean);
       if (data.length > 5) return data.sort((a, b) => a.d.localeCompare(b.d));
     } catch { continue; }
@@ -172,30 +181,30 @@ async function fetchStooqCSV(symbol) {
 }
 
 const SP500_META = [
-  { ticker:"^SPX",  name:"S&P 500 Index", color:"#0052CC", isIndex:true },
-  { ticker:"NVDA",  name:"NVIDIA",         color:"#76b900" },
-  { ticker:"GOOGL", name:"Alphabet",       color:"#4285F4" },
-  { ticker:"AAPL",  name:"Apple",          color:"#555555" },
-  { ticker:"MSFT",  name:"Microsoft",      color:"#00a4ef" },
-  { ticker:"AMZN",  name:"Amazon",         color:"#FF9900" },
-  { ticker:"META",  name:"Meta",           color:"#0866FF" },
-  { ticker:"TSLA",  name:"Tesla",          color:"#cc0000" },
-  { ticker:"JPM",   name:"JPMorgan",       color:"#1A4080" },
-  { ticker:"LLY",   name:"Eli Lilly",      color:"#c0392b" },
-  { ticker:"BRK-B", name:"Berkshire",      color:"#8B6914" },
+  { ticker:"^GSPC",  name:"S&P 500 Index",  color:"#0052CC", isIndex:true },
+  { ticker:"NVDA",   name:"NVIDIA",          color:"#76b900" },
+  { ticker:"GOOGL",  name:"Alphabet",        color:"#4285F4" },
+  { ticker:"AAPL",   name:"Apple",           color:"#888888" },
+  { ticker:"MSFT",   name:"Microsoft",       color:"#00a4ef" },
+  { ticker:"AMZN",   name:"Amazon",          color:"#FF9900" },
+  { ticker:"META",   name:"Meta",            color:"#0866FF" },
+  { ticker:"TSLA",   name:"Tesla",           color:"#cc0000" },
+  { ticker:"JPM",    name:"JPMorgan",        color:"#1A4080" },
+  { ticker:"LLY",    name:"Eli Lilly",       color:"#c0392b" },
+  { ticker:"BRK-B",  name:"Berkshire",       color:"#8B6914" },
 ];
 const KOSPI_META = [
-  { ticker:"^KS11",    name:"KOSPI Index",  color:"#0052CC", isIndex:true },
-  { ticker:"005930.KS",name:"삼성전자",     color:"#1428A0" },
-  { ticker:"000660.KS",name:"SK하이닉스",  color:"#EA001E" },
-  { ticker:"005380.KS",name:"현대차",       color:"#002C5F" },
-  { ticker:"035420.KS",name:"NAVER",        color:"#03C75A" },
-  { ticker:"000270.KS",name:"기아",         color:"#556B7D" },
-  { ticker:"051910.KS",name:"LG화학",       color:"#A50034" },
-  { ticker:"068270.KS",name:"셀트리온",    color:"#0099CC" },
-  { ticker:"035720.KS",name:"카카오",       color:"#B8A000" },
-  { ticker:"028260.KS",name:"삼성물산",    color:"#446090" },
-  { ticker:"003550.KS",name:"LG",           color:"#A50034" },
+  { ticker:"^KS11",    name:"KOSPI Index",   color:"#0052CC", isIndex:true },
+  { ticker:"005930.KS",name:"삼성전자",      color:"#1428A0" },
+  { ticker:"000660.KS",name:"SK하이닉스",   color:"#EA001E" },
+  { ticker:"005380.KS",name:"현대차",        color:"#002C5F" },
+  { ticker:"035420.KS",name:"NAVER",         color:"#03C75A" },
+  { ticker:"000270.KS",name:"기아",          color:"#556B7D" },
+  { ticker:"051910.KS",name:"LG화학",        color:"#A50034" },
+  { ticker:"068270.KS",name:"셀트리온",     color:"#0099CC" },
+  { ticker:"035720.KS",name:"카카오",        color:"#B8A000" },
+  { ticker:"028260.KS",name:"삼성물산",     color:"#446090" },
+  { ticker:"003550.KS",name:"LG",            color:"#A50034" },
 ];
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -818,25 +827,15 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  // ── Market Data Fetch ──────────────────────────────────────────────────────
+  // ── Market Data Fetch (Yahoo Finance) ────────────────────────────────────
   useEffect(()=>{
     setMarketLoading(true); setMarketError(false);
     const sp500Tickers = SP500_META.map(m=>m.ticker);
     const kospiTickers = KOSPI_META.map(m=>m.ticker);
     const allTickers = [...sp500Tickers, ...kospiTickers];
-    // Stooq 심볼 변환
-    const toStooqSym = (t) => {
-      if(t==='^SPX') return '^spx';
-      if(t==='^KS11') return '^ks11';
-      if(t.endsWith('.KS')) return t.replace('.KS','.KS').toLowerCase(); // 005930.ks 형태
-      return t.toLowerCase();
-    };
-    let loaded = 0;
     const newData = { sp500:{}, kospi:{} };
-    const total = allTickers.length;
     Promise.all(allTickers.map(async (ticker) => {
-      const sym = toStooqSym(ticker);
-      const candles = await fetchStooqCSV(sym);
+      const candles = await fetchYahooChart(ticker, "1y");
       if(candles && candles.length > 0) {
         if(sp500Tickers.includes(ticker)) newData.sp500[ticker] = candles;
         else newData.kospi[ticker] = candles;
@@ -1274,7 +1273,7 @@ export default function App() {
               <div>
                 <div className="section-title">마켓 인사이트</div>
                 <div className="section-sub">
-                  {marketLoading ? '📡 실시간 데이터 불러오는 중...' : marketError ? '⚠️ 외부 API 접속 불가 — 아래 새로고침 버튼을 눌러주세요' : '실시간 시장 데이터 (Stooq)'}
+                  {marketLoading ? '📡 실시간 데이터 불러오는 중...' : marketError ? '⚠️ 데이터 로드 실패 — 🔄 새로고침 버튼을 눌러주세요' : '실시간 시장 데이터 (Yahoo Finance)'}
                 </div>
               </div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
@@ -1288,15 +1287,9 @@ export default function App() {
                       setMarketError(false); setMarketLoading(true);
                       const sp500Tickers = SP500_META.map(m=>m.ticker);
                       const kospiTickers = KOSPI_META.map(m=>m.ticker);
-                      const toStooqSym = (t) => {
-                        if(t==='^SPX') return '^spx';
-                        if(t==='^KS11') return '^ks11';
-                        if(t.endsWith('.KS')) return t.toLowerCase();
-                        return t.toLowerCase();
-                      };
                       const newData = { sp500:{}, kospi:{} };
                       Promise.all([...sp500Tickers,...kospiTickers].map(async (ticker) => {
-                        const candles = await fetchStooqCSV(toStooqSym(ticker));
+                        const candles = await fetchYahooChart(ticker, "1y");
                         if(candles && candles.length>0) {
                           if(sp500Tickers.includes(ticker)) newData.sp500[ticker]=candles;
                           else newData.kospi[ticker]=candles;
@@ -1313,7 +1306,7 @@ export default function App() {
               <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:'0.88rem'}}>
                 <div style={{fontSize:'2rem',marginBottom:12,display:'inline-block'}}>⏳</div>
                 <div>주식 데이터를 불러오는 중입니다...</div>
-                <div style={{fontSize:'0.75rem',marginTop:6,color:'#bbb'}}>복수의 CORS 프록시를 통해 Stooq에서 실제 시세를 가져옵니다</div>
+                <div style={{fontSize:'0.75rem',marginTop:6,color:'#bbb'}}>Yahoo Finance에서 실시간 시세를 가져옵니다</div>
               </div>
             ) : marketError ? (
               <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)',fontSize:'0.88rem',background:'#fafafa',borderRadius:8,border:'1px solid var(--border)'}}>
