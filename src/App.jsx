@@ -110,14 +110,9 @@ function parseVideoUrl(url) {
 }
 
 const DEF_PROFILE = { name:"dlwnsleejun", tagline:"기록하는 사람", bio:"", avatar:"" };
-const DEF_POSTS = [
-  { id:1, cat:"insight", subcat:"it", title:"AI 시대, 개인이 갖춰야 할 역량", summary:"앞으로의 시대에는 어떤 능력이 중요해질까?", date:"2026-05-04", img:"", pinned:true, body:"AI의 발전은 단순 반복 업무를 대체하고 있다." },
-  { id:2, cat:"study",   subcat:"adsp", title:"React 18 주요 변경사항", summary:"Concurrent Features와 useTransition.", date:"2026-05-03", img:"", pinned:false, body:"React 18의 가장 주목할 변화." },
-  { id:3, cat:"daily",   subcat:"morning", title:"오늘도 커피 한 잔과 함께", summary:"아침 루틴을 바꾸고 집중력 향상.", date:"2026-05-02", img:"", pinned:false, body:"작은 습관이 하루를 바꾼다." },
-  { id:4, cat:"career",  subcat:"project", title:"첫 사이드 프로젝트 회고", summary:"혼자 만든 첫 프로젝트에서 배운 것들.", date:"2026-05-01", img:"", pinned:false, body:"기술보다 기획이 먼저였다." },
-  { id:5, cat:"inspiration", subcat:"video", title:"디터 람스의 좋은 디자인 10원칙", summary:"단순함이란 본질만 남기는 것.", date:"2026-04-30", img:"", pinned:false, body:"Less but better.", videoUrl:"https://www.youtube.com/watch?v=0oEl9OOuuI0" },
-  { id:6, cat:"photo",   subcat:"travel", title:"을지로, 오래된 골목의 감성", summary:"우연히 들어간 골목의 사진들.", date:"2026-04-29", img:"", pinned:false, body:"낡음이 주는 온기." },
-];
+// DEF_POSTS 제거: 샘플 글이 자동으로 올라오는 문제 방지
+// Supabase가 비어있거나 로드 실패 시 빈 배열 사용
+const DEF_POSTS = [];
 
 function fmtDate(s){ const d=new Date(s); return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`; }
 
@@ -128,84 +123,47 @@ function getTodayKr() {
   return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
-// ─── Stock Data ───────────────────────────────────────────────────────────────
-const PERIODS = [
-  { id:"1w", label:"1주",  days:7   },
-  { id:"1m", label:"1달",  days:30  },
-  { id:"6m", label:"6달",  days:182 },
-  { id:"1y", label:"1년",  days:365 },
-];
+// ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
+// Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
+async function fetchMarketDataViaAI() {
+  const today = new Date().toISOString().slice(0,10);
+  const prompt = `오늘(${today}) 기준 실시간 주식 지수 데이터를 검색해줘.
 
-function sliceByCalendarDays(candles, calendarDays) {
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - calendarDays);
-  return candles.filter(c => new Date(c.d) >= cutoff);
+다음 항목들의 현재가, 전일비(등락률%)를 JSON으로만 응답해. 설명 없이 JSON만.
+
+{
+  "sp500": { "price": 숫자, "change_pct": 숫자(%), "prev_close": 숫자 },
+  "kospi": { "price": 숫자, "change_pct": 숫자(%), "prev_close": 숫자 },
+  "nasdaq": { "price": 숫자, "change_pct": 숫자(%), "prev_close": 숫자 },
+  "nvda": { "price": 숫자, "change_pct": 숫자(%), "name": "NVIDIA" },
+  "aapl": { "price": 숫자, "change_pct": 숫자(%), "name": "Apple" },
+  "tsla": { "price": 숫자, "change_pct": 숫자(%), "name": "Tesla" },
+  "samsung": { "price": 숫자, "change_pct": 숫자(%), "name": "삼성전자" },
+  "skhynix": { "price": 숫자, "change_pct": 숫자(%), "name": "SK하이닉스" },
+  "updated_at": "실제 데이터 기준 시각(한국 기준)"
 }
 
-// ─── Yahoo Finance Chart API (CORS 문제 없음, 실시간 데이터) ────────────────
-async function fetchYahooChart(symbol, range = "1y") {
-  // Yahoo Finance v8 chart API - 브라우저에서 직접 호출 가능
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&includePrePost=false`;
-  const fallbackUrl = `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${range}&includePrePost=false`;
-  for (const endpoint of [url, fallbackUrl]) {
-    try {
-      const r = await fetch(endpoint, {
-        headers: { "Accept": "application/json" },
-        signal: AbortSignal.timeout(10000)
-      });
-      if (!r.ok) continue;
-      const json = await r.json();
-      const result = json?.chart?.result?.[0];
-      if (!result) continue;
-      const timestamps = result.timestamp;
-      const closes = result.indicators?.quote?.[0]?.close;
-      const opens  = result.indicators?.quote?.[0]?.open;
-      const highs  = result.indicators?.quote?.[0]?.high;
-      const lows   = result.indicators?.quote?.[0]?.low;
-      if (!timestamps || !closes) continue;
-      const data = timestamps.map((ts, i) => {
-        const c = closes[i];
-        if (!c || isNaN(c)) return null;
-        const d = new Date(ts * 1000).toISOString().slice(0, 10);
-        return {
-          d,
-          o: opens?.[i] || c,
-          h: highs?.[i] || c,
-          l: lows?.[i] || c,
-          c: parseFloat(c.toFixed(4))
-        };
-      }).filter(Boolean);
-      if (data.length > 5) return data.sort((a, b) => a.d.localeCompare(b.d));
-    } catch { continue; }
-  }
-  return null;
-}
+실제 오늘 시장 데이터를 웹에서 검색해서 정확한 수치로 채워줘.`;
 
-const SP500_META = [
-  { ticker:"^GSPC",  name:"S&P 500 Index",  color:"#0052CC", isIndex:true },
-  { ticker:"NVDA",   name:"NVIDIA",          color:"#76b900" },
-  { ticker:"GOOGL",  name:"Alphabet",        color:"#4285F4" },
-  { ticker:"AAPL",   name:"Apple",           color:"#888888" },
-  { ticker:"MSFT",   name:"Microsoft",       color:"#00a4ef" },
-  { ticker:"AMZN",   name:"Amazon",          color:"#FF9900" },
-  { ticker:"META",   name:"Meta",            color:"#0866FF" },
-  { ticker:"TSLA",   name:"Tesla",           color:"#cc0000" },
-  { ticker:"JPM",    name:"JPMorgan",        color:"#1A4080" },
-  { ticker:"LLY",    name:"Eli Lilly",       color:"#c0392b" },
-  { ticker:"BRK-B",  name:"Berkshire",       color:"#8B6914" },
-];
-const KOSPI_META = [
-  { ticker:"^KS11",    name:"KOSPI Index",   color:"#0052CC", isIndex:true },
-  { ticker:"005930.KS",name:"삼성전자",      color:"#1428A0" },
-  { ticker:"000660.KS",name:"SK하이닉스",   color:"#EA001E" },
-  { ticker:"005380.KS",name:"현대차",        color:"#002C5F" },
-  { ticker:"035420.KS",name:"NAVER",         color:"#03C75A" },
-  { ticker:"000270.KS",name:"기아",          color:"#556B7D" },
-  { ticker:"051910.KS",name:"LG화학",        color:"#A50034" },
-  { ticker:"068270.KS",name:"셀트리온",     color:"#0099CC" },
-  { ticker:"035720.KS",name:"카카오",        color:"#B8A000" },
-  { ticker:"028260.KS",name:"삼성물산",     color:"#446090" },
-  { ticker:"003550.KS",name:"LG",            color:"#A50034" },
-];
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+  if (!response.ok) throw new Error("API error");
+  const data = await response.json();
+  // content 블록에서 텍스트 추출
+  const texts = data.content.filter(b => b.type === "text").map(b => b.text).join("");
+  // JSON 파싱
+  const jsonMatch = texts.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("No JSON in response");
+  return JSON.parse(jsonMatch[0]);
+}
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const HERO_BG = null;
@@ -499,114 +457,104 @@ footer b{color:var(--primary);}
 body.has-player{padding-bottom:76px;}
 `;
 
-// ─── Charts ───────────────────────────────────────────────────────────────────
-function Sparkline({ candles, color, width=120, height=32 }) {
-  const ref = useRef();
-  useEffect(()=>{
-    const c=ref.current; if(!c) return;
-    const ctx=c.getContext('2d');
-    const pts=candles.slice(-30);
-    if(pts.length < 2) return;
-    const vals=pts.map(p=>p.c);
-    const mn=Math.min(...vals), mx=Math.max(...vals);
-    if(mn===mx) return;
-    const pad=2, sx=(width-pad*2)/(pts.length-1), sy=(height-pad*2)/(mx-mn);
-    ctx.clearRect(0,0,width,height); ctx.beginPath();
-    pts.forEach((p,i)=>{ const x=pad+i*sx, y=pad+(mx-p.c)*sy; i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-    ctx.strokeStyle=color; ctx.lineWidth=1.8; ctx.stroke();
-  },[candles,color]);
-  return <canvas ref={ref} width={width} height={height} className="mini-canvas" style={{height:height+'px'}} />;
+// ─── AI Market Widget Component ───────────────────────────────────────────────
+function MarketTicker({ label, price, changePct, unit="", color="#0052CC" }) {
+  const up = parseFloat(changePct) >= 0;
+  const sign = up ? "▲" : "▼";
+  const chgColor = up ? "#DE350B" : "#00875A";
+  return (
+    <div style={{background:'#fff',border:'2px solid var(--border)',borderRadius:10,padding:'16px 20px',display:'flex',flexDirection:'column',gap:6,flex:1,minWidth:140,transition:'border-color 0.2s'}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor=color}
+      onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
+      <div style={{fontSize:'0.7rem',fontWeight:700,color:'var(--muted)',letterSpacing:'0.08em',textTransform:'uppercase'}}>{label}</div>
+      <div style={{fontSize:'1.35rem',fontWeight:800,fontFamily:'Montserrat, sans-serif',color:'#111',lineHeight:1.1}}>
+        {unit}{typeof price==='number' ? price.toLocaleString(undefined,{maximumFractionDigits:2}) : '—'}
+      </div>
+      <div style={{fontSize:'0.8rem',fontWeight:700,color:chgColor}}>
+        {sign} {typeof changePct==='number' ? Math.abs(changePct).toFixed(2) : '0.00'}%
+        <span style={{fontSize:'0.68rem',fontWeight:400,color:'var(--muted)',marginLeft:6}}>전일 대비</span>
+      </div>
+    </div>
+  );
 }
 
-function MainChart({ candles, color }) {
-  const ref = useRef();
-  useEffect(()=>{
-    const c=ref.current; if(!c) return;
-    const ctx=c.getContext('2d');
-    const W=c.offsetWidth||900, H=220;
-    c.width=W; c.height=H;
-    // 방어 코드 - 데이터 부족 시 안전하게 처리
-    if(!candles || candles.length < 2) {
-      ctx.clearRect(0,0,W,H);
-      ctx.fillStyle='#ccc'; ctx.font='14px sans-serif'; ctx.textAlign='center';
-      ctx.fillText('데이터가 부족합니다', W/2, H/2);
-      return;
-    }
-    const pts=candles, vals=pts.map(p=>p.c);
-    const mnRaw=Math.min(...vals), mxRaw=Math.max(...vals);
-    const mn = mnRaw===mxRaw ? mnRaw*0.995 : mnRaw*0.998;
-    const mx = mnRaw===mxRaw ? mxRaw*1.005 : mxRaw*1.002;
-    const pL=60,pR=20,pT=20,pB=32, W2=W-pL-pR, H2=H-pT-pB;
-    ctx.clearRect(0,0,W,H);
-    ctx.strokeStyle='#f0f0f0'; ctx.lineWidth=1;
-    for(let i=0;i<=4;i++){
-      const y=pT+H2*(1-i/4); ctx.beginPath(); ctx.moveTo(pL,y); ctx.lineTo(W-pR,y); ctx.stroke();
-      const val=mn+(mx-mn)*(i/4);
-      ctx.fillStyle='#999'; ctx.font='11px Montserrat,monospace'; ctx.textAlign='right';
-      ctx.fillText(val>=1000?Math.round(val).toLocaleString():val.toFixed(2),pL-6,y+4);
-    }
-    const step=Math.max(1,Math.floor(pts.length/6));
-    pts.forEach((p,i)=>{ if(i%step===0){ const x=pL+W2*(i/(pts.length-1)); ctx.fillStyle='#aaa'; ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.fillText(p.d.slice(5),x,H-8); } });
-    // gradient fill
-    const grad=ctx.createLinearGradient(0,pT,0,H-pB);
-    // color가 짧은 hex(#xxx)면 full hex로 변환
-    let fc = color;
-    if(/^#[0-9a-fA-F]{3}$/.test(fc)) { fc='#'+[...fc.slice(1)].map(x=>x+x).join(''); }
-    grad.addColorStop(0,fc+'33'); grad.addColorStop(1,fc+'00');
-    ctx.beginPath();
-    pts.forEach((p,i)=>{ const x=pL+W2*(i/(pts.length-1)), y=pT+H2*(1-(p.c-mn)/(mx-mn)); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-    ctx.lineTo(pL+W2,H-pB); ctx.lineTo(pL,H-pB); ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
-    ctx.beginPath();
-    pts.forEach((p,i)=>{ const x=pL+W2*(i/(pts.length-1)), y=pT+H2*(1-(p.c-mn)/(mx-mn)); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
-    ctx.strokeStyle=fc; ctx.lineWidth=2.5; ctx.stroke();
-  },[candles,color]);
-  return <canvas ref={ref} style={{width:'100%',height:'220px',display:'block'}} />;
-}
+function AIMarketSection({ marketAI, marketLoading, marketError, onRefresh }) {
+  const d = marketAI || {};
+  return (
+    <section className="stock-section">
+      <div className="stock-inner">
+        <div className="section-head">
+          <div>
+            <div className="section-title">마켓 인사이트</div>
+            <div className="section-sub" style={{display:'flex',alignItems:'center',gap:6}}>
+              {marketLoading ? (
+                <><span style={{display:'inline-block',animation:'spin 1s linear infinite'}}>⏳</span> AI가 실시간 데이터를 검색 중...</>
+              ) : marketError ? (
+                '⚠️ 데이터 로드 실패'
+              ) : d.updated_at ? (
+                <><span style={{color:'#00875A'}}>✅</span> {d.updated_at} 기준 (AI 웹검색)</>
+              ) : 'AI 웹검색으로 실시간 시세 조회'}
+            </div>
+          </div>
+          <button className="btn btn-outline" style={{fontSize:'0.75rem',padding:'6px 14px',display:'flex',alignItems:'center',gap:6}}
+            onClick={onRefresh} disabled={marketLoading}>
+            <span style={{display:'inline-block',animation:marketLoading?'spin 1s linear infinite':'none'}}>🔄</span>
+            {marketLoading ? '조회 중...' : '새로고침'}
+          </button>
+        </div>
 
-// ─── Index Card Mini Chart (야후 파이낸스 스타일) ─────────────────────────────
-function IndexMiniChart({ candles, up }) {
-  const ref = useRef();
-  const color = up ? '#DE350B' : '#00875A';
-  useEffect(()=>{
-    const c = ref.current; if(!c) return;
-    const ctx = c.getContext('2d');
-    const W = c.offsetWidth||320, H = 72;
-    c.width = W; c.height = H;
-    if(!candles||candles.length<2){ ctx.clearRect(0,0,W,H); return; }
-    const vals = candles.map(p=>p.c);
-    const mnRaw = Math.min(...vals), mxRaw = Math.max(...vals);
-    const mn = mnRaw===mxRaw ? mnRaw*0.995 : mnRaw;
-    const mx = mnRaw===mxRaw ? mxRaw*1.005 : mxRaw;
-    const pL=2, pR=2, pT=4, pB=4;
-    const W2=W-pL-pR, H2=H-pT-pB;
-    ctx.clearRect(0,0,W,H);
-    // gradient fill
-    const grad = ctx.createLinearGradient(0,pT,0,H-pB);
-    grad.addColorStop(0, color+'55');
-    grad.addColorStop(1, color+'00');
-    ctx.beginPath();
-    candles.forEach((p,i)=>{
-      const x=pL+W2*(i/(candles.length-1));
-      const y=pT+H2*(1-(p.c-mn)/(mx-mn));
-      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-    });
-    ctx.lineTo(pL+W2,H-pB); ctx.lineTo(pL,H-pB); ctx.closePath();
-    ctx.fillStyle=grad; ctx.fill();
-    // line
-    ctx.beginPath();
-    candles.forEach((p,i)=>{
-      const x=pL+W2*(i/(candles.length-1));
-      const y=pT+H2*(1-(p.c-mn)/(mx-mn));
-      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
-    });
-    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.lineJoin='round'; ctx.stroke();
-    // current price dot
-    const lastX = pL+W2;
-    const lastY = pT+H2*(1-(candles[candles.length-1].c-mn)/(mx-mn));
-    ctx.beginPath(); ctx.arc(lastX,lastY,3.5,0,Math.PI*2);
-    ctx.fillStyle=color; ctx.fill();
-  },[candles,up]);
-  return <canvas ref={ref} style={{width:'100%',height:'72px',display:'block'}}/>;
+        {marketLoading ? (
+          <div style={{textAlign:'center',padding:'56px 0',color:'var(--muted)'}}>
+            <div style={{fontSize:'2.5rem',marginBottom:16,display:'inline-block',animation:'spin 2s linear infinite'}}>🤖</div>
+            <div style={{fontWeight:700,fontSize:'1rem',marginBottom:6}}>AI가 실시간 시장 데이터를 검색하고 있습니다</div>
+            <div style={{fontSize:'0.78rem',color:'#bbb'}}>웹에서 S&P 500, KOSPI, 주요 종목 시세를 가져오는 중...</div>
+          </div>
+        ) : marketError ? (
+          <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)',background:'#fafafa',borderRadius:8,border:'1px solid var(--border)'}}>
+            <div style={{fontSize:'2rem',marginBottom:12}}>📡</div>
+            <div style={{fontWeight:700,marginBottom:8}}>AI 검색 연결 실패</div>
+            <div style={{fontSize:'0.78rem',lineHeight:1.8,color:'#999',marginBottom:16}}>
+              네트워크 상태를 확인하고 새로고침 버튼을 눌러주세요.<br/>
+              잠시 후 다시 시도하면 정상 작동합니다.
+            </div>
+            <button className="btn btn-primary" style={{fontSize:'0.8rem'}} onClick={onRefresh}>🔄 다시 시도</button>
+          </div>
+        ) : !d.sp500 ? (
+          <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)'}}>
+            <div style={{fontSize:'2rem',marginBottom:12}}>📊</div>
+            <div style={{marginBottom:16}}>새로고침을 눌러 실시간 시장 데이터를 불러오세요</div>
+            <button className="btn btn-primary" style={{fontSize:'0.8rem'}} onClick={onRefresh}>🤖 AI 시세 조회</button>
+          </div>
+        ) : (
+          <>
+            {/* 지수 섹션 */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:10}}>📈 주요 지수</div>
+              <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                {d.sp500 && <MarketTicker label="S&P 500" price={d.sp500.price} changePct={d.sp500.change_pct} color="#0052CC"/>}
+                {d.nasdaq && <MarketTicker label="NASDAQ" price={d.nasdaq.price} changePct={d.nasdaq.change_pct} color="#6554C0"/>}
+                {d.kospi && <MarketTicker label="KOSPI" price={d.kospi.price} changePct={d.kospi.change_pct} color="#00875A"/>}
+              </div>
+            </div>
+            {/* 개별 종목 섹션 */}
+            <div style={{marginBottom:8}}>
+              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:10}}>🏢 주요 종목</div>
+              <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                {d.nvda && <MarketTicker label={d.nvda.name||"NVIDIA"} price={d.nvda.price} changePct={d.nvda.change_pct} unit="$" color="#76b900"/>}
+                {d.aapl && <MarketTicker label={d.aapl.name||"Apple"} price={d.aapl.price} changePct={d.aapl.change_pct} unit="$" color="#555"/>}
+                {d.tsla && <MarketTicker label={d.tsla.name||"Tesla"} price={d.tsla.price} changePct={d.tsla.change_pct} unit="$" color="#cc0000"/>}
+                {d.samsung && <MarketTicker label={d.samsung.name||"삼성전자"} price={d.samsung.price} changePct={d.samsung.change_pct} color="#1428A0"/>}
+                {d.skhynix && <MarketTicker label={d.skhynix.name||"SK하이닉스"} price={d.skhynix.price} changePct={d.skhynix.change_pct} color="#EA001E"/>}
+              </div>
+            </div>
+            <div style={{fontSize:'0.7rem',color:'#bbb',marginTop:12,paddingTop:12,borderTop:'1px solid var(--border)'}}>
+              💡 Anthropic API + 웹검색으로 실시간 수집 · 투자 참고용으로만 활용하세요
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  );
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -619,9 +567,6 @@ export default function App() {
   const [modal,setModal]      = useState(null);
   const [editing,setEditing]  = useState(null);
   const [loading,setLoading]  = useState(true);
-  const [market,setMarket]    = useState("sp500");
-  const [selStock,setSelStock]= useState(0);
-  const [period,setPeriod]    = useState("1w");
   const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
   const [prForm,setPrForm]    = useState({...DEF_PROFILE});
   // Calendar state
@@ -638,8 +583,8 @@ export default function App() {
   // Music player state
   const [nowPlaying,setNowPlaying] = useState(null); // {post, videoId}
   const [playerPaused,setPlayerPaused] = useState(false);
-  // Market data state (실제 API)
-  const [marketData,setMarketData] = useState({ sp500:{}, kospi:{} }); // ticker -> candles[]
+  // AI Market data state (Anthropic API + 웹검색)
+  const [marketAI,setMarketAI]       = useState(null);   // AI가 가져온 시장 데이터
   const [marketLoading,setMarketLoading] = useState(false);
   const [marketError,setMarketError] = useState(false);
   // Comments state
@@ -681,15 +626,16 @@ export default function App() {
     // ── Supabase에서 데이터 로드 ──────────────────────────────
     setLoading(true);
     (async () => {
+      let loaded = [];
       try {
         // 1. 글 로드
         const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
-        let loaded;
         if(rows && rows.length > 0) {
           // Supabase row → post 객체 변환
           loaded = rows.map(r => ({ ...r.data, id: r.post_id }));
         } else {
           // Supabase가 비어있으면 localStorage 마이그레이션 시도
+          // ⚠️ 절대로 DEF_POSTS(샘플글)를 자동 저장하지 않음
           let lsPosts = null;
           for(const k of OLD_LS_KEYS) {
             const old = loadLocal(k);
@@ -701,13 +647,8 @@ export default function App() {
               await dbUpsert("dlwns_posts", { post_id: p.id, owner: OWNER_ID, data: p });
             }
             loaded = lsPosts;
-          } else {
-            loaded = DEF_POSTS;
-            // 기본 포스트 저장
-            for(const p of DEF_POSTS) {
-              await dbUpsert("dlwns_posts", { post_id: p.id, owner: OWNER_ID, data: p });
-            }
           }
+          // localStorage도 없으면 그냥 빈 배열 유지 (샘플글 자동저장 없음)
         }
         setPosts(loaded); postsRef.current = loaded;
 
@@ -732,20 +673,20 @@ export default function App() {
         if(commRow) setComments(commRow.data || {});
       } catch(e) {
         console.error("Supabase 로드 실패:", e);
-        // fallback: localStorage
+        // fallback: localStorage (샘플글 저장 없음)
         for(const k of OLD_LS_KEYS) {
           const old = loadLocal(k);
-          if(old && old.length > 0) { setPosts(old); postsRef.current = old; break; }
+          if(old && old.length > 0) { loaded = old; setPosts(old); postsRef.current = old; break; }
         }
       } finally {
         setLoading(false);
       }
+      // URL 상태 복원 (loaded 변수 사용)
+      const init = readState();
+      setCatRaw(init.cat); setSubRaw(init.subcat||"all");
+      if(init.postId) { const f=loaded.find(p=>p.id===init.postId); if(f) setDetailRaw(f); }
+      window.history.replaceState({ cat:init.cat, subcat:init.subcat, postId:init.postId }, "", window.location.href);
     })();
-    const init = readState();
-    setCatRaw(init.cat); setSubRaw(init.subcat||"all");
-    if(init.postId) { const f=loaded.find(p=>p.id===init.postId); if(f) setDetailRaw(f); }
-    window.history.replaceState({ cat:init.cat, subcat:init.subcat, postId:init.postId }, "", window.location.href);
-    setLoading(false);
   }, []);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
@@ -827,25 +768,21 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  // ── Market Data Fetch (Yahoo Finance) ────────────────────────────────────
-  useEffect(()=>{
+  // ── AI Market Data Fetch ────────────────────────────────────────────────────
+  const fetchAIMarket = async () => {
     setMarketLoading(true); setMarketError(false);
-    const sp500Tickers = SP500_META.map(m=>m.ticker);
-    const kospiTickers = KOSPI_META.map(m=>m.ticker);
-    const allTickers = [...sp500Tickers, ...kospiTickers];
-    const newData = { sp500:{}, kospi:{} };
-    Promise.all(allTickers.map(async (ticker) => {
-      const candles = await fetchYahooChart(ticker, "1y");
-      if(candles && candles.length > 0) {
-        if(sp500Tickers.includes(ticker)) newData.sp500[ticker] = candles;
-        else newData.kospi[ticker] = candles;
-      }
-    })).then(()=>{
-      setMarketData(newData);
+    try {
+      const data = await fetchMarketDataViaAI();
+      setMarketAI(data);
+    } catch(e) {
+      console.error("AI market fetch failed:", e);
+      setMarketError(true);
+    } finally {
       setMarketLoading(false);
-      if(Object.keys(newData.sp500).length===0 && Object.keys(newData.kospi).length===0) setMarketError(true);
-    }).catch(()=>{ setMarketLoading(false); setMarketError(true); });
-  },[]);
+    }
+  };
+  // 페이지 로드 시 자동으로 AI 마켓 데이터 가져오기
+  useEffect(()=>{ fetchAIMarket(); }, []);
 
   // ── Comment helpers ────────────────────────────────────────────────────────
   const saveComment = async (postId) => {
@@ -900,11 +837,6 @@ export default function App() {
     setDragIdx(null);
   };
 
-  // ── Derived market data ─────────────────────────────────────────────────────
-  const getCandles = (ticker) => {
-    const mkt = SP500_META.find(m=>m.ticker===ticker) ? 'sp500' : 'kospi';
-    return marketData[mkt]?.[ticker] || [];
-  };
   const requestEdit   = (p) => setConfirmAction({type:'edit',   data:p});
   const requestDelete = (id,title) => setConfirmAction({type:'delete', data:{id,title}});
   const confirmEdit   = () => { openEdit(confirmAction.data); setConfirmAction(null); };
@@ -951,19 +883,8 @@ export default function App() {
   const rest = pinned ? filtered.filter(p=>p!==pinned) : filtered;
   const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
 
-  const stocks = market==="sp500" ? SP500_META.filter(m=>!m.isIndex) : KOSPI_META.filter(m=>!m.isIndex);
-  const idxMeta = market==="sp500" ? SP500_META[0] : KOSPI_META[0];
-  const idxAll  = getCandles(idxMeta.ticker);
-  const cur = stocks[selStock] || stocks[0];
-  const periodDays = PERIODS.find(p=>p.id===period)?.days||7;
-  const curCandles = sliceByCalendarDays(getCandles(cur?.ticker||''), periodDays);
-  const idxSliced  = sliceByCalendarDays(idxAll, periodDays);
-  const curLast  = curCandles.length ? curCandles[curCandles.length-1].c : 0;
-  const curFirst = curCandles.length > 1 ? curCandles[0].c : curLast;
-  const curChg   = curFirst ? ((curLast-curFirst)/curFirst*100).toFixed(2) : '0.00';
-  const idxLast  = idxSliced.length ? idxSliced[idxSliced.length-1].c : 0;
-  const idxFirst = idxSliced.length > 1 ? idxSliced[0].c : idxLast;
-  const idxChg   = idxFirst ? ((idxLast-idxFirst)/idxFirst*100).toFixed(2) : '0.00';
+  const stocks = [];
+  const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
 
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
@@ -1265,141 +1186,14 @@ export default function App() {
         </section>
       )}
 
-      {/* ── STOCK ── */}
+      {/* ── STOCK (AI Market) ── */}
       {isAll && (
-        <section className="stock-section">
-          <div className="stock-inner">
-            <div className="section-head">
-              <div>
-                <div className="section-title">마켓 인사이트</div>
-                <div className="section-sub">
-                  {marketLoading ? '📡 실시간 데이터 불러오는 중...' : marketError ? '⚠️ 데이터 로드 실패 — 🔄 새로고침 버튼을 눌러주세요' : '실시간 시장 데이터 (Yahoo Finance)'}
-                </div>
-              </div>
-              <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <div className="market-tabs">
-                  <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
-                  <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
-                </div>
-                {(marketError || (!marketLoading && Object.keys(marketData.sp500).length===0)) && (
-                  <button className="btn btn-outline" style={{fontSize:'0.75rem',padding:'6px 12px'}}
-                    onClick={()=>{
-                      setMarketError(false); setMarketLoading(true);
-                      const sp500Tickers = SP500_META.map(m=>m.ticker);
-                      const kospiTickers = KOSPI_META.map(m=>m.ticker);
-                      const newData = { sp500:{}, kospi:{} };
-                      Promise.all([...sp500Tickers,...kospiTickers].map(async (ticker) => {
-                        const candles = await fetchYahooChart(ticker, "1y");
-                        if(candles && candles.length>0) {
-                          if(sp500Tickers.includes(ticker)) newData.sp500[ticker]=candles;
-                          else newData.kospi[ticker]=candles;
-                        }
-                      })).then(()=>{
-                        setMarketData(newData); setMarketLoading(false);
-                        if(Object.keys(newData.sp500).length===0) setMarketError(true);
-                      }).catch(()=>{ setMarketLoading(false); setMarketError(true); });
-                    }}>🔄 새로고침</button>
-                )}
-              </div>
-            </div>
-            {marketLoading ? (
-              <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:'0.88rem'}}>
-                <div style={{fontSize:'2rem',marginBottom:12,display:'inline-block'}}>⏳</div>
-                <div>주식 데이터를 불러오는 중입니다...</div>
-                <div style={{fontSize:'0.75rem',marginTop:6,color:'#bbb'}}>Yahoo Finance에서 실시간 시세를 가져옵니다</div>
-              </div>
-            ) : marketError ? (
-              <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)',fontSize:'0.88rem',background:'#fafafa',borderRadius:8,border:'1px solid var(--border)'}}>
-                <div style={{fontSize:'2rem',marginBottom:12}}>📡</div>
-                <div style={{fontWeight:700,marginBottom:8}}>외부 주식 API에 연결할 수 없습니다</div>
-                <div style={{fontSize:'0.78rem',lineHeight:1.8,color:'#999',marginBottom:16}}>
-                  브라우저의 CORS 정책 또는 네트워크 환경으로 인해 일시적으로 데이터를 불러오지 못했습니다.<br/>
-                  위의 🔄 새로고침 버튼을 눌러 다시 시도하거나, 잠시 후 새로고침해주세요.
-                </div>
-              </div>
-            ) : (
-            <>
-            <div className="index-cards">
-              {/* 인덱스 카드 */}
-              <div className="index-card">
-                <div className="index-card-top">
-                  <div className="idx-info">
-                    <h3>{market==='sp500'?'S&P 500':'KOSPI'} Index</h3>
-                    <div className="idx-val">{idxLast ? (market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()) : '—'}</div>
-                    <div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>
-                      {idxLast ? <>{parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%</> : '데이터 없음'}
-                      <span style={{fontWeight:400,fontSize:'0.75rem',color:'var(--muted)',marginLeft:6}}>{PERIODS.find(p=>p.id===period)?.label} 기준</span>
-                    </div>
-                  </div>
-                </div>
-                <IndexMiniChart key={`idx-${market}-${period}`} candles={idxSliced} up={parseFloat(idxChg)>=0}/>
-                <div className="idx-dates">
-                  <span>{idxSliced[0]?.d||''}</span>
-                  <span style={{marginLeft:'auto'}}>{idxSliced[idxSliced.length-1]?.d||''}</span>
-                </div>
-              </div>
-              {/* 선택 종목 카드 */}
-              <div className="index-card">
-                <div className="index-card-top">
-                  <div className="idx-info">
-                    <h3>{cur?.name} ({cur?.ticker})</h3>
-                    <div className="idx-val">
-                      {curLast ? <>{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</> : '—'}
-                    </div>
-                    <div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>
-                      {curLast ? <>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</> : '데이터 없음'}
-                      <span style={{fontWeight:400,fontSize:'0.75rem',color:'var(--muted)',marginLeft:6}}>{PERIODS.find(p=>p.id===period)?.label} 기준</span>
-                    </div>
-                  </div>
-                </div>
-                <IndexMiniChart key={`cur-${market}-${selStock}-${period}`} candles={curCandles} up={parseFloat(curChg)>=0}/>
-                <div className="idx-dates">
-                  <span>{curCandles[0]?.d||''}</span>
-                  <span style={{marginLeft:'auto'}}>{curCandles[curCandles.length-1]?.d||''}</span>
-                </div>
-              </div>
-            </div>
-            <div className="chart-box">
-              <div className="chart-header">
-                <div className="chart-info">
-                  <span style={{fontWeight:700,fontSize:'0.88rem'}}>{cur?.name} ({cur?.ticker})</span>
-                  <span className={`chart-chg-big ${parseFloat(curChg)>=0?'up':'dn'}`}>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</span>
-                  <span className="chart-range-label">{PERIODS.find(p=>p.id===period)?.label} 기준</span>
-                </div>
-                <div className="period-tabs">
-                  {PERIODS.map(p=><button key={p.id} className={`period-tab ${period===p.id?'active':''}`} onClick={()=>setPeriod(p.id)}>{p.label}</button>)}
-                </div>
-              </div>
-              {curCandles.length > 1
-                ? <MainChart key={`${market}-${selStock}-${period}`} candles={curCandles} color={cur?.color||'#0052CC'}/>
-                : <div style={{height:220,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted)',fontSize:'0.85rem'}}>이 기간의 데이터가 없습니다</div>
-              }
-            </div>
-            <div className="stocks-grid">
-              {stocks.map((s,i)=>{
-                const candles = getCandles(s.ticker);
-                const last  = candles.length ? candles[candles.length-1].c : 0;
-                const prev  = candles.length > 1 ? candles[candles.length-2].c : last;
-                const chg   = prev ? ((last-prev)/prev*100).toFixed(2) : '0.00';
-                const up    = parseFloat(chg)>=0;
-                return (<div key={s.ticker} className={`stock-card ${selStock===i?'selected':''}`} onClick={()=>setSelStock(i)}>
-                  <div className="stock-ticker" style={{color:s.color}}>{s.ticker.replace('.KS','').replace('.KQ','')}</div>
-                  <div className="stock-name">{s.name}</div>
-                  <div className="stock-price">
-                    {last ? <>{market==='sp500'?'$':''}{last>=1000?Math.round(last).toLocaleString():last.toFixed(2)}</> : '—'}
-                  </div>
-                  <div className={`stock-chg ${up?'up':'dn'}`}>{last?<>{up?'▲':'▼'} {Math.abs(chg)}%</>:'—'}</div>
-                  {candles.length>1
-                    ? <Sparkline candles={candles.slice(-30)} color={up?'#DE350B':'#00875A'} width={130} height={28}/>
-                    : <div style={{height:28,display:'flex',alignItems:'center',fontSize:'0.65rem',color:'#ccc'}}>데이터 없음</div>
-                  }
-                </div>);
-              })}
-            </div>
-            </>
-            )}
-          </div>
-        </section>
+        <AIMarketSection
+          marketAI={marketAI}
+          marketLoading={marketLoading}
+          marketError={marketError}
+          onRefresh={fetchAIMarket}
+        />
       )}
 
       {/* ── CONTENT ── */}
