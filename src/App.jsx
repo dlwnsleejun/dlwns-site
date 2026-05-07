@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── Supabase Config ──────────────────────────────────────────────────────────
 // ⚠️  아래 두 줄에 본인의 Supabase 정보를 입력하세요
-const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co";
+const SUPA_URL = "https://https://uxqbfbjniweabkecfhjp.supabase.co";
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE";
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
@@ -87,9 +87,9 @@ const SUBCATS = {
   insight:     [{ id:"all",label:"전체" },{ id:"it",label:"AI" },{ id:"economy",label:"경제" },{ id:"society",label:"사회" },{ id:"etc",label:"기타" }],
   inspiration: [{ id:"all",label:"전체" },{ id:"video",label:"유튜브/쇼츠" },{ id:"reels",label:"인스타 릴스" },{ id:"book",label:"도서" },{ id:"design",label:"디자인" }],
   career:      [{ id:"all",label:"전체" },{ id:"job",label:"취업/이직" },{ id:"project",label:"프로젝트" },{ id:"cert",label:"자격증" },{ id:"etc",label:"기타" }],
-  study:       [{ id:"all",label:"전체" },{ id:"english",label:"영어" },{ id:"japanese",label:"일본어" },{ id:"adsp",label:"ADSP" },{ id:"logistics",label:"물류관리사" },{ id:"etc",label:"기타" }],
+  study:       [{ id:"all",label:"전체" },{ id:"english",label:"영어" },{ id:"japanese",label:"일본어" },{ id:"adsp",label:"ADSP" },{ id:"logistics",label:"물류관리사" },{ id:"book",label:"책" },{ id:"movie",label:"영화" },{ id:"etc",label:"기타" }],
   daily:       [{ id:"all",label:"전체" },{ id:"diary",label:"일기" },{ id:"photo",label:"오늘의 사진" }],
-  baseball:    [{ id:"all",label:"전체" },{ id:"game",label:"직관" },{ id:"practice",label:"훈련" },{ id:"etc",label:"기타" }],
+  baseball:    [{ id:"all",label:"전체" },{ id:"game",label:"경기 리뷰" },{ id:"practice",label:"훈련" },{ id:"etc",label:"기타" }],
   music:       [{ id:"all",label:"전체" }],
 };
 
@@ -140,24 +140,35 @@ function sliceByCalendarDays(candles, calendarDays) {
   return candles.filter(c => new Date(c.d) >= cutoff);
 }
 
-// Stooq CSV API로 실제 주가 데이터 가져오기
+// Stooq CSV API로 실제 주가 데이터 가져오기 (CORS 프록시 복수 시도)
 async function fetchStooqCSV(symbol) {
-  const url = `https://stooq.com/q/d/l/?s=${symbol}&i=d`;
-  const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
-  try {
-    const r = await fetch(proxy);
-    if (!r.ok) return null;
-    const text = await r.text();
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return null;
-    // header: Date,Open,High,Low,Close,Volume
-    const data = lines.slice(1).map(line => {
-      const [d, o, h, l, c] = line.split(',');
-      if (!d || !c || isNaN(parseFloat(c))) return null;
-      return { d: d.trim(), o: parseFloat(o), h: parseFloat(h), l: parseFloat(l), c: parseFloat(c) };
-    }).filter(Boolean);
-    return data.sort((a, b) => a.d.localeCompare(b.d));
-  } catch { return null; }
+  // 여러 프록시를 순서대로 시도
+  const stooqUrl = `https://stooq.com/q/d/l/?s=${symbol}&i=d`;
+  const proxies = [
+    `https://corsproxy.io/?${encodeURIComponent(stooqUrl)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(stooqUrl)}`,
+    `https://cors-anywhere.herokuapp.com/${stooqUrl}`,
+  ];
+  for (const proxy of proxies) {
+    try {
+      const r = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const text = await r.text();
+      if (!text || text.includes('<html') || text.includes('No data')) continue;
+      const lines = text.trim().split('\n');
+      if (lines.length < 3) continue;
+      const data = lines.slice(1).map(line => {
+        const parts = line.split(',');
+        if (parts.length < 5) return null;
+        const [d, o, h, l, c] = parts;
+        const close = parseFloat(c);
+        if (!d || !d.match(/^\d{4}-\d{2}-\d{2}$/) || isNaN(close) || close <= 0) return null;
+        return { d: d.trim(), o: parseFloat(o), h: parseFloat(h), l: parseFloat(l), c: close };
+      }).filter(Boolean);
+      if (data.length > 5) return data.sort((a, b) => a.d.localeCompare(b.d));
+    } catch { continue; }
+  }
+  return null;
 }
 
 const SP500_META = [
@@ -631,6 +642,7 @@ export default function App() {
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
   const iframeRef=useRef();
+  const contentRef=useRef(); // 전체 글 보기 스크롤 타겟
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const navToCat = useCallback((cat, sub="all") => {
@@ -812,11 +824,11 @@ export default function App() {
     const sp500Tickers = SP500_META.map(m=>m.ticker);
     const kospiTickers = KOSPI_META.map(m=>m.ticker);
     const allTickers = [...sp500Tickers, ...kospiTickers];
-    // Stooq 심볼 변환 (^ 접두어 처리)
+    // Stooq 심볼 변환
     const toStooqSym = (t) => {
-      if(t==='^SPX') return '%5Espx'; // S&P500
-      if(t==='^KS11') return '%5Eks11'; // KOSPI
-      if(t.endsWith('.KS')) return t.replace('.KS','.KQ').toLowerCase();
+      if(t==='^SPX') return '^spx';
+      if(t==='^KS11') return '^ks11';
+      if(t.endsWith('.KS')) return t.replace('.KS','.KS').toLowerCase(); // 005930.ks 형태
       return t.toLowerCase();
     };
     let loaded = 0;
@@ -1106,8 +1118,15 @@ export default function App() {
             <div className="hero-content">
               <h1>이준 기록집</h1>
               <div className="hero-actions" style={{marginTop:24}}>
-                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 새 글 작성</button>
-                <button className="btn btn-lg btn-outline-white" onClick={()=>{navToCat("all");setShowAllMode(true);}}>전체 글 보기</button>
+                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>{'+ 새 글 작성'}</button>
+                <button className="btn btn-lg btn-outline-white" onClick={()=>{
+                  setShowAllMode(true);
+                  setTimeout(()=>{
+                    if(contentRef.current) {
+                      contentRef.current.scrollIntoView({behavior:'smooth', block:'start'});
+                    }
+                  }, 80);
+                }}>{'전체 글 보기'}</button>
               </div>
             </div>
             <div className="hero-card">
@@ -1255,19 +1274,55 @@ export default function App() {
               <div>
                 <div className="section-title">마켓 인사이트</div>
                 <div className="section-sub">
-                  {marketLoading ? '📡 실시간 데이터 불러오는 중...' : marketError ? '⚠️ 데이터 로드 실패 (네트워크 확인)' : '실시간 시장 데이터 (Stooq)'}
+                  {marketLoading ? '📡 실시간 데이터 불러오는 중...' : marketError ? '⚠️ 외부 API 접속 불가 — 아래 새로고침 버튼을 눌러주세요' : '실시간 시장 데이터 (Stooq)'}
                 </div>
               </div>
-              <div className="market-tabs">
-                <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
-                <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <div className="market-tabs">
+                  <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
+                  <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
+                </div>
+                {(marketError || (!marketLoading && Object.keys(marketData.sp500).length===0)) && (
+                  <button className="btn btn-outline" style={{fontSize:'0.75rem',padding:'6px 12px'}}
+                    onClick={()=>{
+                      setMarketError(false); setMarketLoading(true);
+                      const sp500Tickers = SP500_META.map(m=>m.ticker);
+                      const kospiTickers = KOSPI_META.map(m=>m.ticker);
+                      const toStooqSym = (t) => {
+                        if(t==='^SPX') return '^spx';
+                        if(t==='^KS11') return '^ks11';
+                        if(t.endsWith('.KS')) return t.toLowerCase();
+                        return t.toLowerCase();
+                      };
+                      const newData = { sp500:{}, kospi:{} };
+                      Promise.all([...sp500Tickers,...kospiTickers].map(async (ticker) => {
+                        const candles = await fetchStooqCSV(toStooqSym(ticker));
+                        if(candles && candles.length>0) {
+                          if(sp500Tickers.includes(ticker)) newData.sp500[ticker]=candles;
+                          else newData.kospi[ticker]=candles;
+                        }
+                      })).then(()=>{
+                        setMarketData(newData); setMarketLoading(false);
+                        if(Object.keys(newData.sp500).length===0) setMarketError(true);
+                      }).catch(()=>{ setMarketLoading(false); setMarketError(true); });
+                    }}>🔄 새로고침</button>
+                )}
               </div>
             </div>
             {marketLoading ? (
               <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:'0.88rem'}}>
-                <div style={{fontSize:'2rem',marginBottom:12,animation:'spin 1s linear infinite',display:'inline-block'}}>⏳</div>
+                <div style={{fontSize:'2rem',marginBottom:12,display:'inline-block'}}>⏳</div>
                 <div>주식 데이터를 불러오는 중입니다...</div>
-                <div style={{fontSize:'0.75rem',marginTop:6,color:'#bbb'}}>Stooq API에서 실제 시세를 가져옵니다</div>
+                <div style={{fontSize:'0.75rem',marginTop:6,color:'#bbb'}}>복수의 CORS 프록시를 통해 Stooq에서 실제 시세를 가져옵니다</div>
+              </div>
+            ) : marketError ? (
+              <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)',fontSize:'0.88rem',background:'#fafafa',borderRadius:8,border:'1px solid var(--border)'}}>
+                <div style={{fontSize:'2rem',marginBottom:12}}>📡</div>
+                <div style={{fontWeight:700,marginBottom:8}}>외부 주식 API에 연결할 수 없습니다</div>
+                <div style={{fontSize:'0.78rem',lineHeight:1.8,color:'#999',marginBottom:16}}>
+                  브라우저의 CORS 정책 또는 네트워크 환경으로 인해 일시적으로 데이터를 불러오지 못했습니다.<br/>
+                  위의 🔄 새로고침 버튼을 눌러 다시 시도하거나, 잠시 후 새로고침해주세요.
+                </div>
               </div>
             ) : (
             <>
@@ -1355,7 +1410,7 @@ export default function App() {
       )}
 
       {/* ── CONTENT ── */}
-      <section className="content-section">
+      <section className="content-section" ref={contentRef}>
         <div className={isAll?"content-inner fade":"content-full fade"}>
           {isAll ? (
             <>
