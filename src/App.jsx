@@ -1064,13 +1064,13 @@ export default function App() {
                 <input
                   type="text" value={commentNick} onChange={e=>setCommentNick(e.target.value)}
                   placeholder="닉네임"
-                  style={{border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:"'Noto Sans KR',sans-serif",outline:'none'}}/>
+                  style={{border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:'Noto Sans KR, sans-serif',outline:'none'}}/>
                 <div style={{fontSize:'0.72rem',color:'var(--muted)',display:'flex',alignItems:'center'}}>누구든지 댓글을 남길 수 있어요</div>
               </div>
               <textarea
                 rows={3} value={commentBody} onChange={e=>setCommentBody(e.target.value)}
                 placeholder="댓글을 작성하세요..."
-                style={{width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:"'Noto Sans KR',sans-serif",outline:'none',resize:'vertical',marginBottom:10}}/>
+                style={{width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:'Noto Sans KR, sans-serif',outline:'none',resize:'vertical',marginBottom:10}}/>
               <div style={{display:'flex',justifyContent:'flex-end'}}>
                 <button className="btn btn-primary" onClick={()=>saveComment(detail.id)} disabled={!commentNick.trim()||!commentBody.trim()} style={{opacity:commentNick.trim()&&commentBody.trim()?1:0.4}}>댓글 등록</button>
               </div>
@@ -1175,7 +1175,7 @@ export default function App() {
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
                 <button className="cal-today-btn" onClick={goToday}>TODAY</button>
                 <button className="cal-btn" onClick={prevMonth}>‹</button>
-                <span style={{fontFamily:"'Montserrat',sans-serif",fontWeight:700,fontSize:'1rem',minWidth:80,textAlign:'center'}}>{calYear}년 {calMonth+1}월</span>
+                <span style={{fontFamily:'Montserrat, sans-serif',fontWeight:700,fontSize:'1rem',minWidth:80,textAlign:'center'}}>{calYear}년 {calMonth+1}월</span>
                 <button className="cal-btn" onClick={nextMonth}>›</button>
               </div>
             </div>
@@ -1347,7 +1347,7 @@ export default function App() {
               {showAllMode ? (
                 <div style={{gridColumn:'1/-1'}}>
                   <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:24}}>
-                    <h2 style={{fontFamily:"'Montserrat',sans-serif",fontSize:'1.2rem',fontWeight:700}}>전체 글 보기</h2>
+                    <h2 style={{fontFamily:'Montserrat, sans-serif',fontSize:'1.2rem',fontWeight:700}}>전체 글 보기</h2>
                     <span style={{fontSize:'0.78rem',color:'var(--muted)'}}>총 {posts.length}개 · 날짜별 최신순</span>
                     <button className="btn btn-outline" style={{padding:'5px 12px',fontSize:'0.75rem',marginLeft:'auto'}} onClick={()=>setShowAllMode(false)}>← 홈으로</button>
                   </div>
@@ -1362,7 +1362,7 @@ export default function App() {
                     return dates.map(date=>(
                       <div key={date} style={{marginBottom:32}}>
                         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
-                          <span style={{fontFamily:"'Montserrat',sans-serif",fontSize:'0.88rem',fontWeight:700,color:'var(--sub)'}}>{fmtDate(date)}</span>
+                          <span style={{fontFamily:'Montserrat, sans-serif',fontSize:'0.88rem',fontWeight:700,color:'var(--sub)'}}>{fmtDate(date)}</span>
                           <div style={{flex:1,height:1,background:'var(--border)'}}/>
                           <span style={{fontSize:'0.7rem',color:'var(--muted)'}}>{grouped[date].length}개</span>
                         </div>
