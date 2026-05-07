@@ -125,44 +125,79 @@ function getTodayKr() {
 
 // ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
 // Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
-async function fetchMarketDataViaAI() {
-  const today = new Date().toISOString().slice(0,10);
-  const prompt = `오늘(${today}) 기준 실시간 주식 지수 데이터를 검색해줘.
-
-다음 항목들의 현재가, 전일비(등락률%)를 JSON으로만 응답해. 설명 없이 JSON만.
-
-{
-  "sp500": { "price": 숫자, "change_pct": 숫자(%), "prev_close": 숫자 },
-  "kospi": { "price": 숫자, "change_pct": 숫자(%), "prev_close": 숫자 },
-  "nasdaq": { "price": 숫자, "change_pct": 숫자(%), "prev_close": 숫자 },
-  "nvda": { "price": 숫자, "change_pct": 숫자(%), "name": "NVIDIA" },
-  "aapl": { "price": 숫자, "change_pct": 숫자(%), "name": "Apple" },
-  "tsla": { "price": 숫자, "change_pct": 숫자(%), "name": "Tesla" },
-  "samsung": { "price": 숫자, "change_pct": 숫자(%), "name": "삼성전자" },
-  "skhynix": { "price": 숫자, "change_pct": 숫자(%), "name": "SK하이닉스" },
-  "updated_at": "실제 데이터 기준 시각(한국 기준)"
+// ─── Market Data: 다중 공개 API (CORS 없음) ───────────────────────────────────
+async function fetchStooqQuote(symbol) {
+  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!r.ok) return null;
+  const text = await r.text();
+  const lines = text.trim().split('\n');
+  if (lines.length < 2) return null;
+  const cols = lines[1].split(',');
+  // Symbol,Date,Time,Open,High,Low,Close,Volume
+  const close = parseFloat(cols[6]);
+  const open  = parseFloat(cols[3]);
+  if (!close || isNaN(close) || close <= 0) return null;
+  const changePct = open && open > 0 ? ((close - open) / open * 100) : 0;
+  return { price: close, change_pct: parseFloat(changePct.toFixed(2)) };
 }
 
-실제 오늘 시장 데이터를 웹에서 검색해서 정확한 수치로 채워줘.`;
+// Yahoo Finance via CORS proxy fallback
+async function fetchYahooQuote(ticker) {
+  const proxies = [
+    `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`)}`,
+    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`)}`,
+  ];
+  for (const url of proxies) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) continue;
+      const json = await r.json();
+      const result = json?.chart?.result?.[0];
+      if (!result) continue;
+      const closes = result.indicators?.quote?.[0]?.close?.filter(Boolean);
+      if (!closes || closes.length < 1) continue;
+      const last = closes[closes.length - 1];
+      const prev = closes.length > 1 ? closes[closes.length - 2] : last;
+      const changePct = prev ? ((last - prev) / prev * 100) : 0;
+      return { price: parseFloat(last.toFixed(2)), change_pct: parseFloat(changePct.toFixed(2)) };
+    } catch { continue; }
+  }
+  return null;
+}
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
-      messages: [{ role: "user", content: prompt }]
+async function fetchMarketDataViaAI() {
+  // 종목별 심볼 (Stooq → Yahoo fallback)
+  const targets = [
+    { key: 'sp500',   stooq: '^spx',       yahoo: '%5EGSPC',    name: 'S&P 500' },
+    { key: 'nasdaq',  stooq: '^ndx',        yahoo: '%5EIXIC',    name: 'NASDAQ' },
+    { key: 'kospi',   stooq: '^kospi',      yahoo: '%5EKS11',    name: 'KOSPI' },
+    { key: 'nvda',    stooq: 'nvda.us',     yahoo: 'NVDA',       name: 'NVIDIA' },
+    { key: 'aapl',    stooq: 'aapl.us',     yahoo: 'AAPL',       name: 'Apple' },
+    { key: 'tsla',    stooq: 'tsla.us',     yahoo: 'TSLA',       name: 'Tesla' },
+    { key: 'samsung', stooq: '005930.kr',   yahoo: '005930.KS',  name: '삼성전자' },
+    { key: 'skhynix', stooq: '000660.kr',   yahoo: '000660.KS',  name: 'SK하이닉스' },
+  ];
+
+  const results = {};
+  await Promise.all(
+    targets.map(async ({ key, stooq, yahoo, name }) => {
+      try {
+        // 1차: Stooq
+        let q = await fetchStooqQuote(stooq);
+        // 2차: Yahoo proxy fallback
+        if (!q) q = await fetchYahooQuote(yahoo);
+        if (q) results[key] = { ...q, name };
+      } catch { /* 개별 실패는 skip */ }
     })
-  });
-  if (!response.ok) throw new Error("API error");
-  const data = await response.json();
-  // content 블록에서 텍스트 추출
-  const texts = data.content.filter(b => b.type === "text").map(b => b.text).join("");
-  // JSON 파싱
-  const jsonMatch = texts.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("No JSON in response");
-  return JSON.parse(jsonMatch[0]);
+  );
+
+  if (Object.keys(results).length === 0) throw new Error("모든 API 실패");
+
+  const now = new Date();
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  results.updated_at = `${kst.getUTCFullYear()}.${kst.getUTCMonth()+1}.${kst.getUTCDate()} ${kst.getUTCHours()}:${String(kst.getUTCMinutes()).padStart(2,'0')} KST`;
+  return results;
 }
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -927,11 +962,22 @@ export default function App() {
           <span style={{fontSize:'0.78rem',color:'var(--muted)',fontWeight:500,marginRight:4}}>{getTodayKr()}</span>
           <input type="file" accept=".json" style={{display:'none'}} id="import-file" onChange={importData}/>
           <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px'}} title="데이터 백업/복구"
-            onClick={()=>{
-              const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소)\n\n확인: 현재 데이터를 JSON 파일로 저장\n취소: JSON 파일에서 데이터 복원");
+            onClick={async ()=>{
+              const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소) / ESC: 취소\n\n확인: 현재 데이터를 JSON 파일로 저장\n취소: JSON 파일에서 데이터 복원");
               if(choice) exportData();
               else document.getElementById('import-file').click();
             }}>💾 백업</button>
+          <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px'}} title="Supabase 데이터 진단"
+            onClick={async ()=>{
+              // Supabase에서 직접 원본 데이터 조회
+              try {
+                const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
+                if(!rows || rows.length===0){ alert("Supabase에 저장된 글이 없습니다.\n\nSUPA_KEY가 올바른지 확인하세요."); return; }
+                const studyPosts = rows.filter(r=>r.data?.cat==='study');
+                const summary = rows.map(r=>`[${r.data?.cat}/${r.data?.subcat}] ${r.data?.title}`).join('\n');
+                alert(`📊 Supabase 전체 글 ${rows.length}개\n스터디: ${studyPosts.length}개\n\n${summary}`);
+              } catch(e){ alert("Supabase 연결 실패: " + e.message); }
+            }}>🔍 진단</button>
           <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
           <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
