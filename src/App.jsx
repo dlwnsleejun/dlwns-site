@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ─── Supabase Config ──────────────────────────────────────────────────────────
 // ⚠️  아래 두 줄에 본인의 Supabase 정보를 입력하세요
 const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE";
+const SUPA_KEY = "=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE";
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
@@ -78,6 +78,7 @@ const CATS = [
   { id:"career",      label:"커리어",      color:"#00875A", desc:"직무와 성장에 관한 이야기" },
   { id:"study",       label:"스터디",      color:"#FF8B00", desc:"배움을 정리하고 공유합니다" },
   { id:"daily",       label:"하루기록",    color:"#DE350B", desc:"일기와 오늘의 사진을 기록합니다" },
+  { id:"baseball",    label:"야구",        color:"#1565C0", desc:"야구 직관 기록과 사진을 담습니다" },
   { id:"music",       label:"뮤직",        color:"#E91E8C", desc:"좋아하는 음악을 플레이리스트로 담습니다" },
 ];
 const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
@@ -88,6 +89,7 @@ const SUBCATS = {
   career:      [{ id:"all",label:"전체" },{ id:"job",label:"취업/이직" },{ id:"project",label:"프로젝트" },{ id:"cert",label:"자격증" },{ id:"etc",label:"기타" }],
   study:       [{ id:"all",label:"전체" },{ id:"english",label:"영어" },{ id:"japanese",label:"일본어" },{ id:"adsp",label:"ADSP" },{ id:"logistics",label:"물류관리사" },{ id:"etc",label:"기타" }],
   daily:       [{ id:"all",label:"전체" },{ id:"diary",label:"일기" },{ id:"photo",label:"오늘의 사진" }],
+  baseball:    [{ id:"all",label:"전체" },{ id:"game",label:"직관" },{ id:"practice",label:"훈련" },{ id:"etc",label:"기타" }],
   music:       [{ id:"all",label:"전체" }],
 };
 
@@ -133,75 +135,57 @@ const PERIODS = [
   { id:"1y", label:"1년",  days:365 },
 ];
 
-// 날짜 문자열 기반 seed → 같은 날 항상 같은 값 보장
-function seededRand(seed) {
-  let s = (seed ^ 0xdeadbeef) >>> 0;
-  return () => {
-    s = Math.imul(s ^ (s >>> 16), 0x45d9f3b) >>> 0;
-    s = Math.imul(s ^ (s >>> 16), 0x45d9f3b) >>> 0;
-    s = (s ^ (s >>> 16)) >>> 0;
-    return s / 0x100000000;
-  };
-}
-function dateSeed(dateStr, extra=0) {
-  return dateStr.replace(/-/g,'').split('').reduce((a,c,i)=>((a<<5)-a+c.charCodeAt(0)*31*(i+1)),extra);
-}
-
-function genCandles(base, vol, days=365) {
-  const data=[]; let price=base;
-  const now=new Date(); now.setHours(0,0,0,0);
-  for(let i=days;i>=0;i--){
-    const d=new Date(now); d.setDate(d.getDate()-i);
-    if(d.getDay()===0||d.getDay()===6) continue;
-    const dateStr = d.toISOString().slice(0,10);
-    // 날짜 + 기준가 조합으로 seed → 항상 같은 값
-    const rand = seededRand(dateSeed(dateStr, Math.round(base)));
-    const change = (rand()-0.48)*vol;
-    const open = price;
-    const close = +(price*(1+change/100)).toFixed(2);
-    const high  = +(Math.max(open,close)*(1+rand()*vol*0.003)).toFixed(2);
-    const low   = +(Math.min(open,close)*(1-rand()*vol*0.003)).toFixed(2);
-    data.push({ d:dateStr, o:open, h:high, l:low, c:close });
-    price=close;
-  }
-  return data;
-}
 function sliceByCalendarDays(candles, calendarDays) {
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - calendarDays);
   return candles.filter(c => new Date(c.d) >= cutoff);
 }
-const SP500_STOCKS = [
-  { ticker:"NVDA", name:"NVIDIA",    base:875,  vol:3.2, color:"#76b900" },
-  { ticker:"GOOGL",name:"Alphabet",  base:168,  vol:2.1, color:"#4285F4" },
-  { ticker:"AAPL", name:"Apple",     base:195,  vol:1.8, color:"#999999" },
-  { ticker:"MSFT", name:"Microsoft", base:385,  vol:1.9, color:"#00a4ef" },
-  { ticker:"AMZN", name:"Amazon",    base:192,  vol:2.4, color:"#FF9900" },
-  { ticker:"META", name:"Meta",      base:578,  vol:2.6, color:"#0866FF" },
-  { ticker:"TSLA", name:"Tesla",     base:248,  vol:4.1, color:"#cc0000" },
-  { ticker:"BRK",  name:"Berkshire", base:418,  vol:1.2, color:"#8B6914" },
-  { ticker:"LLY",  name:"Eli Lilly", base:792,  vol:2.3, color:"#c0392b" },
-  { ticker:"JPM",  name:"JPMorgan",  base:228,  vol:1.7, color:"#1A4080" },
-];
-const KOSPI_STOCKS = [
-  { ticker:"005930",name:"삼성전자",  base:58000, vol:2.4, color:"#1428A0" },
-  { ticker:"000660",name:"SK하이닉스",base:192000,vol:3.1, color:"#EA001E" },
-  { ticker:"005380",name:"현대차",    base:24500, vol:2.2, color:"#002C5F" },
-  { ticker:"051910",name:"LG화학",    base:31500, vol:2.8, color:"#A50034" },
-  { ticker:"035420",name:"NAVER",     base:19800, vol:2.3, color:"#03C75A" },
-  { ticker:"000270",name:"기아",      base:10800, vol:2.1, color:"#556B7D" },
-  { ticker:"068270",name:"셀트리온",  base:18500, vol:3.4, color:"#0099CC" },
-  { ticker:"035720",name:"카카오",    base:3850,  vol:3.8, color:"#B8A000" },
-  { ticker:"028260",name:"삼성물산",  base:14200, vol:1.9, color:"#446090" },
-  { ticker:"003550",name:"LG",        base:6800,  vol:1.8, color:"#A50034" },
-];
-const SP500_DATA  = SP500_STOCKS.map(s=>({ ...s, candles:genCandles(s.base,s.vol) }));
-const KOSPI_DATA  = KOSPI_STOCKS.map(s=>({ ...s, candles:genCandles(s.base,s.vol) }));
-function genIndexCandles(stocks){
-  const len=stocks[0].candles.length;
-  return Array.from({length:len},(_,i)=>({ d:stocks[0].candles[i].d, c:stocks.reduce((s,st)=>s+st.candles[i].c/stocks.length,0) }));
+
+// Stooq CSV API로 실제 주가 데이터 가져오기
+async function fetchStooqCSV(symbol) {
+  const url = `https://stooq.com/q/d/l/?s=${symbol}&i=d`;
+  const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+  try {
+    const r = await fetch(proxy);
+    if (!r.ok) return null;
+    const text = await r.text();
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) return null;
+    // header: Date,Open,High,Low,Close,Volume
+    const data = lines.slice(1).map(line => {
+      const [d, o, h, l, c] = line.split(',');
+      if (!d || !c || isNaN(parseFloat(c))) return null;
+      return { d: d.trim(), o: parseFloat(o), h: parseFloat(h), l: parseFloat(l), c: parseFloat(c) };
+    }).filter(Boolean);
+    return data.sort((a, b) => a.d.localeCompare(b.d));
+  } catch { return null; }
 }
-const SP500_INDEX = genIndexCandles(SP500_DATA);
-const KOSPI_INDEX = genIndexCandles(KOSPI_DATA);
+
+const SP500_META = [
+  { ticker:"^SPX",  name:"S&P 500 Index", color:"#0052CC", isIndex:true },
+  { ticker:"NVDA",  name:"NVIDIA",         color:"#76b900" },
+  { ticker:"GOOGL", name:"Alphabet",       color:"#4285F4" },
+  { ticker:"AAPL",  name:"Apple",          color:"#555555" },
+  { ticker:"MSFT",  name:"Microsoft",      color:"#00a4ef" },
+  { ticker:"AMZN",  name:"Amazon",         color:"#FF9900" },
+  { ticker:"META",  name:"Meta",           color:"#0866FF" },
+  { ticker:"TSLA",  name:"Tesla",          color:"#cc0000" },
+  { ticker:"JPM",   name:"JPMorgan",       color:"#1A4080" },
+  { ticker:"LLY",   name:"Eli Lilly",      color:"#c0392b" },
+  { ticker:"BRK-B", name:"Berkshire",      color:"#8B6914" },
+];
+const KOSPI_META = [
+  { ticker:"^KS11",    name:"KOSPI Index",  color:"#0052CC", isIndex:true },
+  { ticker:"005930.KS",name:"삼성전자",     color:"#1428A0" },
+  { ticker:"000660.KS",name:"SK하이닉스",  color:"#EA001E" },
+  { ticker:"005380.KS",name:"현대차",       color:"#002C5F" },
+  { ticker:"035420.KS",name:"NAVER",        color:"#03C75A" },
+  { ticker:"000270.KS",name:"기아",         color:"#556B7D" },
+  { ticker:"051910.KS",name:"LG화학",       color:"#A50034" },
+  { ticker:"068270.KS",name:"셀트리온",    color:"#0099CC" },
+  { ticker:"035720.KS",name:"카카오",       color:"#B8A000" },
+  { ticker:"028260.KS",name:"삼성물산",    color:"#446090" },
+  { ticker:"003550.KS",name:"LG",           color:"#A50034" },
+];
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const HERO_BG = null;
@@ -472,6 +456,27 @@ footer b{color:var(--primary);}
 .empty-desc{font-size:0.85rem;margin-bottom:22px;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 .fade{animation:fadeIn 0.3s ease both;}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+/* ── BASEBALL PHOTOS ── */
+.baseball-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-bottom:24px;}
+.baseball-grid img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;display:block;}
+/* ── COMMENT SECTION ── */
+.comment-section{margin-top:48px;border-top:1px solid var(--border);padding-top:32px;}
+.comment-item{padding:14px 0;border-bottom:1px solid var(--border);display:flex;gap:12px;align-items:flex-start;}
+.comment-avatar{width:36px;height:36px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:0.9rem;font-weight:700;flex-shrink:0;color:var(--primary);}
+.comment-nick{font-weight:700;font-size:0.82rem;}
+.comment-date{font-size:0.7rem;color:var(--muted);}
+.comment-body{font-size:0.88rem;line-height:1.7;color:#333;white-space:pre-wrap;margin-top:4px;}
+.comment-del{background:none;border:none;color:#ccc;cursor:pointer;font-size:0.8rem;flex-shrink:0;padding:2px 4px;}
+.comment-del:hover{color:var(--red);}
+.comment-form{margin-top:20px;background:var(--bg);border-radius:8px;padding:20px;border:1px solid var(--border);}
+/* ── MUSIC DRAG ── */
+.music-item.dragging{opacity:0.4;background:#f0f4ff;}
+.music-item.drag-over{border-top:2px solid #E91E8C;}
+.music-drag-handle{cursor:grab;color:var(--muted);font-size:0.9rem;padding:0 4px;opacity:0.5;flex-shrink:0;}
+.music-drag-handle:hover{opacity:1;}
+/* ── MUSIC PLAYER BAR BOTTOM ── */
+body.has-player{padding-bottom:76px;}
 `;
 
 // ─── Charts ───────────────────────────────────────────────────────────────────
@@ -612,8 +617,20 @@ export default function App() {
   const [showAllMode,setShowAllMode] = useState(false);
   // Music player state
   const [nowPlaying,setNowPlaying] = useState(null); // {post, videoId}
+  const [playerPaused,setPlayerPaused] = useState(false);
+  // Market data state (실제 API)
+  const [marketData,setMarketData] = useState({ sp500:{}, kospi:{} }); // ticker -> candles[]
+  const [marketLoading,setMarketLoading] = useState(false);
+  const [marketError,setMarketError] = useState(false);
+  // Comments state
+  const [comments,setComments] = useState({}); // postId -> [{id,nick,body,date}]
+  const [commentNick,setCommentNick] = useState('');
+  const [commentBody,setCommentBody] = useState('');
+  // Music drag-n-drop
+  const [dragIdx,setDragIdx] = useState(null);
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
+  const iframeRef=useRef();
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const navToCat = useCallback((cat, sub="all") => {
@@ -688,6 +705,10 @@ export default function App() {
           const lsCal = loadLocal("dlwns-calendar1");
           if(lsCal) { setCalEvents(lsCal); await dbUpsert("dlwns_calendar", { owner: OWNER_ID, data: lsCal }); }
         }
+
+        // 4. 댓글 로드
+        const commRow = await dbGet("dlwns_comments", `owner=eq.${OWNER_ID}`);
+        if(commRow) setComments(commRow.data || {});
       } catch(e) {
         console.error("Supabase 로드 실패:", e);
         // fallback: localStorage
@@ -785,7 +806,94 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  // ── Confirm-dialog wrappers ─────────────────────────────────────────────────
+  // ── Market Data Fetch ──────────────────────────────────────────────────────
+  useEffect(()=>{
+    setMarketLoading(true); setMarketError(false);
+    const sp500Tickers = SP500_META.map(m=>m.ticker);
+    const kospiTickers = KOSPI_META.map(m=>m.ticker);
+    const allTickers = [...sp500Tickers, ...kospiTickers];
+    // Stooq 심볼 변환 (^ 접두어 처리)
+    const toStooqSym = (t) => {
+      if(t==='^SPX') return '%5Espx'; // S&P500
+      if(t==='^KS11') return '%5Eks11'; // KOSPI
+      if(t.endsWith('.KS')) return t.replace('.KS','.KQ').toLowerCase();
+      return t.toLowerCase();
+    };
+    let loaded = 0;
+    const newData = { sp500:{}, kospi:{} };
+    const total = allTickers.length;
+    Promise.all(allTickers.map(async (ticker) => {
+      const sym = toStooqSym(ticker);
+      const candles = await fetchStooqCSV(sym);
+      if(candles && candles.length > 0) {
+        if(sp500Tickers.includes(ticker)) newData.sp500[ticker] = candles;
+        else newData.kospi[ticker] = candles;
+      }
+    })).then(()=>{
+      setMarketData(newData);
+      setMarketLoading(false);
+      if(Object.keys(newData.sp500).length===0 && Object.keys(newData.kospi).length===0) setMarketError(true);
+    }).catch(()=>{ setMarketLoading(false); setMarketError(true); });
+  },[]);
+
+  // ── Comment helpers ────────────────────────────────────────────────────────
+  const saveComment = async (postId) => {
+    if(!commentNick.trim()||!commentBody.trim()) return;
+    const newComment = { id:Date.now(), nick:commentNick.trim(), body:commentBody.trim(), date:new Date().toISOString().slice(0,10) };
+    const updated = { ...comments, [postId]: [...(comments[postId]||[]), newComment] };
+    setComments(updated);
+    await dbUpsert("dlwns_comments", { owner: OWNER_ID, data: updated });
+    setCommentBody('');
+  };
+  const delComment = async (postId, commentId) => {
+    const updated = { ...comments, [postId]: (comments[postId]||[]).filter(c=>c.id!==commentId) };
+    setComments(updated);
+    await dbUpsert("dlwns_comments", { owner: OWNER_ID, data: updated });
+  };
+
+  // ── Music auto-next (via message event from iframe) ───────────────────────
+  // YouTube iframe API로 자동 다음곡 (postMessage 방식)
+  useEffect(()=>{
+    const handler = (e) => {
+      try {
+        const data = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        // YouTube Player State: 0 = ended
+        if(data?.event==='onStateChange' && data?.info===0 && nowPlaying) {
+          const musicPosts = postsRef.current.filter(p=>p.cat==='music');
+          const idx = musicPosts.findIndex(p=>p.id===nowPlaying.post.id);
+          const next = musicPosts[(idx+1)%musicPosts.length];
+          if(next){const v=parseVideoUrl(next.videoUrl||'');setNowPlaying({post:next,videoId:v?.id});}
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handler);
+    return ()=>window.removeEventListener('message', handler);
+  },[nowPlaying]);
+
+  // ── Music drag-n-drop reorder ─────────────────────────────────────────────
+  const handleMusicDragStart = (idx) => setDragIdx(idx);
+  const handleMusicDragOver  = (e, idx) => { e.preventDefault(); };
+  const handleMusicDrop      = async (dropIdx) => {
+    if(dragIdx===null||dragIdx===dropIdx) { setDragIdx(null); return; }
+    const musicPosts = posts.filter(p=>p.cat==='music');
+    const others     = posts.filter(p=>p.cat!=='music');
+    const reordered  = [...musicPosts];
+    const [moved]    = reordered.splice(dragIdx,1);
+    reordered.splice(dropIdx,0,moved);
+    // assign new order field
+    const now = Date.now();
+    const updated = reordered.map((p,i)=>({...p, order: now+i}));
+    const newAll = [...others, ...updated];
+    setPosts(newAll); postsRef.current=newAll;
+    for(const p of updated) await dbUpsert("dlwns_posts",{post_id:p.id,owner:OWNER_ID,data:p});
+    setDragIdx(null);
+  };
+
+  // ── Derived market data ─────────────────────────────────────────────────────
+  const getCandles = (ticker) => {
+    const mkt = SP500_META.find(m=>m.ticker===ticker) ? 'sp500' : 'kospi';
+    return marketData[mkt]?.[ticker] || [];
+  };
   const requestEdit   = (p) => setConfirmAction({type:'edit',   data:p});
   const requestDelete = (id,title) => setConfirmAction({type:'delete', data:{id,title}});
   const confirmEdit   = () => { openEdit(confirmAction.data); setConfirmAction(null); };
@@ -803,8 +911,8 @@ export default function App() {
   const handleImg = async e => {
     const files = Array.from(e.target.files);
     if(!files.length) return;
-    if(form.subcat === 'photo') {
-      // 오늘의 사진: 여러 장
+    if(form.subcat === 'photo' || form.cat === 'baseball') {
+      // 오늘의 사진 & 야구: 여러 장
       const newImgs = await Promise.all(files.map(f=>toB64(f)));
       setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
     } else {
@@ -822,7 +930,7 @@ export default function App() {
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',music:'🎵'};
+  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',baseball:'⚾',music:'🎵'};
   const isAll = activeCat==="all";
   const catInfo = CAT[activeCat];
   const subcats = !isAll ? SUBCATS[activeCat]||[] : [];
@@ -832,18 +940,19 @@ export default function App() {
   const rest = pinned ? filtered.filter(p=>p!==pinned) : filtered;
   const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
 
-  const stocks = market==="sp500" ? SP500_DATA : KOSPI_DATA;
-  const idxAll = market==="sp500" ? SP500_INDEX : KOSPI_INDEX;
-  const cur = stocks[selStock];
+  const stocks = market==="sp500" ? SP500_META.filter(m=>!m.isIndex) : KOSPI_META.filter(m=>!m.isIndex);
+  const idxMeta = market==="sp500" ? SP500_META[0] : KOSPI_META[0];
+  const idxAll  = getCandles(idxMeta.ticker);
+  const cur = stocks[selStock] || stocks[0];
   const periodDays = PERIODS.find(p=>p.id===period)?.days||7;
-  const curCandles = sliceByCalendarDays(cur.candles, periodDays);
+  const curCandles = sliceByCalendarDays(getCandles(cur?.ticker||''), periodDays);
   const idxSliced  = sliceByCalendarDays(idxAll, periodDays);
-  const curLast  = curCandles.length ? curCandles[curCandles.length-1].c : cur.candles[cur.candles.length-1].c;
+  const curLast  = curCandles.length ? curCandles[curCandles.length-1].c : 0;
   const curFirst = curCandles.length > 1 ? curCandles[0].c : curLast;
-  const curChg   = ((curLast-curFirst)/curFirst*100).toFixed(2);
-  const idxLast  = idxSliced.length ? idxSliced[idxSliced.length-1].c : idxAll[idxAll.length-1].c;
+  const curChg   = curFirst ? ((curLast-curFirst)/curFirst*100).toFixed(2) : '0.00';
+  const idxLast  = idxSliced.length ? idxSliced[idxSliced.length-1].c : 0;
   const idxFirst = idxSliced.length > 1 ? idxSliced[0].c : idxLast;
-  const idxChg   = ((idxLast-idxFirst)/idxFirst*100).toFixed(2);
+  const idxChg   = idxFirst ? ((idxLast-idxFirst)/idxFirst*100).toFixed(2) : '0.00';
 
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
@@ -911,10 +1020,11 @@ export default function App() {
             <button className="btn-del-sm" onClick={()=>requestDelete(detail.id,detail.title)}>삭제</button>
           </div>
           {detail.videoUrl && renderVideo(detail)}
-          {detail.subcat==='photo' && (detail.images||[]).length>0 ? (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:8,marginBottom:22}}>
+          {/* 야구 or 오늘의 사진: 대형 그리드 */}
+          {(detail.cat==='baseball' || detail.subcat==='photo') && (detail.images||[]).length>0 ? (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12,marginBottom:24}}>
               {(detail.images||[]).map((src,i)=>(
-                <img key={i} src={src} alt="" style={{width:'100%',height:200,objectFit:'cover',borderRadius:6,display:'block'}}/>
+                <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,display:'block'}}/>
               ))}
             </div>
           ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
@@ -922,6 +1032,50 @@ export default function App() {
             {(detail.body||detail.summary).split('\n').map((line,i)=>(
               line.trim()==='' ? <br key={i}/> : <p key={i} style={{margin:0,minHeight:'1.4em'}}>{line}</p>
             ))}
+          </div>
+
+          {/* ── 댓글 섹션 ── */}
+          <div style={{marginTop:48,borderTop:'1px solid var(--border)',paddingTop:32}}>
+            <h3 style={{fontSize:'1rem',fontWeight:700,marginBottom:20}}>💬 댓글 {(comments[detail.id]||[]).length}개</h3>
+            {/* 댓글 목록 */}
+            {(comments[detail.id]||[]).map(c=>(
+              <div key={c.id} style={{padding:'14px 0',borderBottom:'1px solid var(--border)',display:'flex',gap:12,alignItems:'flex-start'}}>
+                <div style={{width:36,height:36,borderRadius:'50%',background:'var(--bg)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.9rem',fontWeight:700,flexShrink:0,color:'var(--primary)'}}>
+                  {c.nick[0]?.toUpperCase()}
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                    <span style={{fontWeight:700,fontSize:'0.82rem'}}>{c.nick}</span>
+                    <span style={{fontSize:'0.7rem',color:'var(--muted)'}}>{c.date}</span>
+                  </div>
+                  <div style={{fontSize:'0.88rem',lineHeight:1.7,color:'#333',whiteSpace:'pre-wrap'}}>{c.body}</div>
+                </div>
+                <button onClick={()=>delComment(detail.id,c.id)}
+                  style={{background:'none',border:'none',color:'#ccc',cursor:'pointer',fontSize:'0.8rem',flexShrink:0,padding:'2px 4px'}}
+                  title="삭제">×</button>
+              </div>
+            ))}
+            {(comments[detail.id]||[]).length===0&&(
+              <div style={{color:'var(--muted)',fontSize:'0.85rem',padding:'16px 0',textAlign:'center'}}>아직 댓글이 없어요. 첫 번째 댓글을 남겨보세요!</div>
+            )}
+            {/* 댓글 작성 폼 */}
+            <div style={{marginTop:20,background:'var(--bg)',borderRadius:8,padding:20,border:'1px solid var(--border)'}}>
+              <div style={{display:'grid',gridTemplateColumns:'160px 1fr',gap:10,marginBottom:10}}>
+                <input
+                  type="text" value={commentNick} onChange={e=>setCommentNick(e.target.value)}
+                  placeholder="닉네임"
+                  style={{border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:"'Noto Sans KR',sans-serif",outline:'none'}}/>
+                <div style={{fontSize:'0.72rem',color:'var(--muted)',display:'flex',alignItems:'center'}}>누구든지 댓글을 남길 수 있어요</div>
+              </div>
+              <textarea
+                rows={3} value={commentBody} onChange={e=>setCommentBody(e.target.value)}
+                placeholder="댓글을 작성하세요..."
+                style={{width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:"'Noto Sans KR',sans-serif",outline:'none',resize:'vertical',marginBottom:10}}/>
+              <div style={{display:'flex',justifyContent:'flex-end'}}>
+                <button className="btn btn-primary" onClick={()=>saveComment(detail.id)} disabled={!commentNick.trim()||!commentBody.trim()} style={{opacity:commentNick.trim()&&commentBody.trim()?1:0.4}}>댓글 등록</button>
+              </div>
+            </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1082,30 +1236,39 @@ export default function App() {
         <section className="stock-section">
           <div className="stock-inner">
             <div className="section-head">
-              <div><div className="section-title">마켓 인사이트</div><div className="section-sub">시뮬레이션 데이터</div></div>
+              <div>
+                <div className="section-title">마켓 인사이트</div>
+                <div className="section-sub">
+                  {marketLoading ? '📡 실시간 데이터 불러오는 중...' : marketError ? '⚠️ 데이터 로드 실패 (네트워크 확인)' : '실시간 시장 데이터 (Stooq)'}
+                </div>
+              </div>
               <div className="market-tabs">
                 <button className={`market-tab ${market==='sp500'?'active':''}`} onClick={()=>{setMarket('sp500');setSelStock(0);}}>S&P 500</button>
                 <button className={`market-tab ${market==='kospi'?'active':''}`} onClick={()=>{setMarket('kospi');setSelStock(0);}}>KOSPI</button>
               </div>
             </div>
+            {marketLoading ? (
+              <div style={{textAlign:'center',padding:'60px 0',color:'var(--muted)',fontSize:'0.88rem'}}>
+                <div style={{fontSize:'2rem',marginBottom:12,animation:'spin 1s linear infinite',display:'inline-block'}}>⏳</div>
+                <div>주식 데이터를 불러오는 중입니다...</div>
+                <div style={{fontSize:'0.75rem',marginTop:6,color:'#bbb'}}>Stooq API에서 실제 시세를 가져옵니다</div>
+              </div>
+            ) : (
+            <>
             <div className="index-cards">
-              {/* S&P500 or KOSPI 인덱스 카드 */}
+              {/* 인덱스 카드 */}
               <div className="index-card">
                 <div className="index-card-top">
                   <div className="idx-info">
                     <h3>{market==='sp500'?'S&P 500':'KOSPI'} Index</h3>
-                    <div className="idx-val">{market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()}</div>
+                    <div className="idx-val">{idxLast ? (market==='sp500'?idxLast.toFixed(0):Math.round(idxLast).toLocaleString()) : '—'}</div>
                     <div className={`idx-chg ${parseFloat(idxChg)>=0?'up':'dn'}`}>
-                      {parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%
+                      {idxLast ? <>{parseFloat(idxChg)>=0?'▲':'▼'} {Math.abs(idxChg)}%</> : '데이터 없음'}
                       <span style={{fontWeight:400,fontSize:'0.75rem',color:'var(--muted)',marginLeft:6}}>{PERIODS.find(p=>p.id===period)?.label} 기준</span>
                     </div>
                   </div>
                 </div>
-                <IndexMiniChart
-                  key={`idx-${market}-${period}`}
-                  candles={idxSliced}
-                  up={parseFloat(idxChg)>=0}
-                />
+                <IndexMiniChart key={`idx-${market}-${period}`} candles={idxSliced} up={parseFloat(idxChg)>=0}/>
                 <div className="idx-dates">
                   <span>{idxSliced[0]?.d||''}</span>
                   <span style={{marginLeft:'auto'}}>{idxSliced[idxSliced.length-1]?.d||''}</span>
@@ -1115,19 +1278,17 @@ export default function App() {
               <div className="index-card">
                 <div className="index-card-top">
                   <div className="idx-info">
-                    <h3>{cur.name} ({cur.ticker})</h3>
-                    <div className="idx-val">{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</div>
+                    <h3>{cur?.name} ({cur?.ticker})</h3>
+                    <div className="idx-val">
+                      {curLast ? <>{market==='sp500'?'$':''}{curLast>=1000?Math.round(curLast).toLocaleString():curLast.toFixed(2)}{market==='kospi'?'원':''}</> : '—'}
+                    </div>
                     <div className={`idx-chg ${parseFloat(curChg)>=0?'up':'dn'}`}>
-                      {parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%
+                      {curLast ? <>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</> : '데이터 없음'}
                       <span style={{fontWeight:400,fontSize:'0.75rem',color:'var(--muted)',marginLeft:6}}>{PERIODS.find(p=>p.id===period)?.label} 기준</span>
                     </div>
                   </div>
                 </div>
-                <IndexMiniChart
-                  key={`cur-${market}-${selStock}-${period}`}
-                  candles={curCandles}
-                  up={parseFloat(curChg)>=0}
-                />
+                <IndexMiniChart key={`cur-${market}-${selStock}-${period}`} candles={curCandles} up={parseFloat(curChg)>=0}/>
                 <div className="idx-dates">
                   <span>{curCandles[0]?.d||''}</span>
                   <span style={{marginLeft:'auto'}}>{curCandles[curCandles.length-1]?.d||''}</span>
@@ -1137,7 +1298,7 @@ export default function App() {
             <div className="chart-box">
               <div className="chart-header">
                 <div className="chart-info">
-                  <span style={{fontWeight:700,fontSize:'0.88rem'}}>{cur.name} ({cur.ticker})</span>
+                  <span style={{fontWeight:700,fontSize:'0.88rem'}}>{cur?.name} ({cur?.ticker})</span>
                   <span className={`chart-chg-big ${parseFloat(curChg)>=0?'up':'dn'}`}>{parseFloat(curChg)>=0?'▲':'▼'} {Math.abs(curChg)}%</span>
                   <span className="chart-range-label">{PERIODS.find(p=>p.id===period)?.label} 기준</span>
                 </div>
@@ -1145,21 +1306,34 @@ export default function App() {
                   {PERIODS.map(p=><button key={p.id} className={`period-tab ${period===p.id?'active':''}`} onClick={()=>setPeriod(p.id)}>{p.label}</button>)}
                 </div>
               </div>
-              <MainChart key={`${market}-${selStock}-${period}`} candles={curCandles} color={cur.color}/>
+              {curCandles.length > 1
+                ? <MainChart key={`${market}-${selStock}-${period}`} candles={curCandles} color={cur?.color||'#0052CC'}/>
+                : <div style={{height:220,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--muted)',fontSize:'0.85rem'}}>이 기간의 데이터가 없습니다</div>
+              }
             </div>
             <div className="stocks-grid">
               {stocks.map((s,i)=>{
-                const last=s.candles[s.candles.length-1].c, prev=s.candles[s.candles.length-2].c;
-                const chg=((last-prev)/prev*100).toFixed(2), up=parseFloat(chg)>=0;
+                const candles = getCandles(s.ticker);
+                const last  = candles.length ? candles[candles.length-1].c : 0;
+                const prev  = candles.length > 1 ? candles[candles.length-2].c : last;
+                const chg   = prev ? ((last-prev)/prev*100).toFixed(2) : '0.00';
+                const up    = parseFloat(chg)>=0;
                 return (<div key={s.ticker} className={`stock-card ${selStock===i?'selected':''}`} onClick={()=>setSelStock(i)}>
-                  <div className="stock-ticker" style={{color:s.color}}>{s.ticker}</div>
+                  <div className="stock-ticker" style={{color:s.color}}>{s.ticker.replace('.KS','').replace('.KQ','')}</div>
                   <div className="stock-name">{s.name}</div>
-                  <div className="stock-price">{market==='sp500'?'$':''}{last>=1000?Math.round(last).toLocaleString():last.toFixed(2)}</div>
-                  <div className={`stock-chg ${up?'up':'dn'}`}>{up?'▲':'▼'} {Math.abs(chg)}%</div>
-                  <Sparkline candles={s.candles} color={up?'#DE350B':'#00875A'} width={130} height={28}/>
+                  <div className="stock-price">
+                    {last ? <>{market==='sp500'?'$':''}{last>=1000?Math.round(last).toLocaleString():last.toFixed(2)}</> : '—'}
+                  </div>
+                  <div className={`stock-chg ${up?'up':'dn'}`}>{last?<>{up?'▲':'▼'} {Math.abs(chg)}%</>:'—'}</div>
+                  {candles.length>1
+                    ? <Sparkline candles={candles.slice(-30)} color={up?'#DE350B':'#00875A'} width={130} height={28}/>
+                    : <div style={{height:28,display:'flex',alignItems:'center',fontSize:'0.65rem',color:'#ccc'}}>데이터 없음</div>
+                  }
                 </div>);
               })}
             </div>
+            </>
+            )}
           </div>
         </section>
       )}
@@ -1309,7 +1483,8 @@ export default function App() {
                         <div style={{aspectRatio:'16/9',width:'100%'}}>
                           <iframe
                             key={nowPlaying.videoId}
-                            src={`https://www.youtube.com/embed/${nowPlaying.videoId}?autoplay=1&rel=0`}
+                            ref={iframeRef}
+                            src={`https://www.youtube.com/embed/${nowPlaying.videoId}?autoplay=1&rel=0&enablejsapi=1`}
                             style={{width:'100%',height:'100%',border:'none',display:'block'}}
                             allowFullScreen allow="autoplay; encrypted-media" title={nowPlaying.post.title}/>
                         </div>
@@ -1341,13 +1516,19 @@ export default function App() {
                       </div>
                     )}
                     <div className="music-playlist" style={{border:'1px solid var(--border)',borderTop:nowPlaying?'none':'1px solid var(--border)',borderRadius:nowPlaying?'0 0 8px 8px':'0 0 8px 8px',overflow:'hidden',marginBottom:24}}>
-                      {filtered.map((p,idx)=>{
+                      {filtered.sort((a,b)=>(a.order||a.id)-(b.order||b.id)).map((p,idx)=>{
                         const v=parseVideoUrl(p.videoUrl||'');
                         const isPlay=nowPlaying?.post.id===p.id;
                         const thumb=v?`https://img.youtube.com/vi/${v.id}/mqdefault.jpg`:null;
                         return(
-                          <div key={p.id} className={`music-item${isPlay?' playing':''}`}
-                            onClick={()=>{const vv=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:vv?.id});}}>
+                          <div key={p.id}
+                            className={`music-item${isPlay?' playing':''}${dragIdx===idx?' dragging':''}`}
+                            draggable
+                            onDragStart={()=>handleMusicDragStart(idx)}
+                            onDragOver={e=>handleMusicDragOver(e,idx)}
+                            onDrop={()=>handleMusicDrop(idx)}
+                            onClick={()=>{const vv=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:vv?.id});setPlayerPaused(false);}}>
+                            <span className="music-drag-handle" title="드래그로 순서 변경">⠿</span>
                             <div className="music-num" style={{color:isPlay?'#E91E8C':'var(--muted)'}}>{isPlay?'♪':idx+1}</div>
                             {thumb?<img className="music-thumb" src={thumb} alt=""/>:
                               <div className="music-thumb-placeholder">🎵</div>}
@@ -1360,7 +1541,7 @@ export default function App() {
                               <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
                             </div>
                             <button className={`music-play-btn${isPlay?' active':''}`}
-                              onClick={e=>{e.stopPropagation();const vv=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:vv?.id});}}>
+                              onClick={e=>{e.stopPropagation();const vv=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:vv?.id});setPlayerPaused(false);}}>
                               {isPlay?'■':'▶'}
                             </button>
                           </div>
@@ -1374,6 +1555,50 @@ export default function App() {
                     <div className="empty-title">플레이리스트가 비어있어요</div>
                     <div className="empty-desc">유튜브 링크와 함께 음악을 추가해보세요!</div>
                     <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 음악 추가</button>
+                  </div>
+                )}
+              </div>
+            ) : activeCat==='baseball' ? (
+              /* ── BASEBALL VIEW ── */
+              <div style={{gridColumn:'1/-1'}}>
+                {filtered.length>0 ? (
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))',gap:20}}>
+                    {filtered.map(p=>(
+                      <div key={p.id} className="post-card" onClick={()=>navToPost(p)} style={{overflow:'hidden'}}>
+                        {/* 야구: 첫 사진을 1/3 비율로 크게 */}
+                        {(p.images||[]).length>0 ? (
+                          <div style={{aspectRatio:'3/2',overflow:'hidden',background:'#111'}}>
+                            <img src={p.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                          </div>
+                        ) : p.img ? (
+                          <div style={{aspectRatio:'3/2',overflow:'hidden'}}>
+                            <img src={p.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                          </div>
+                        ) : (
+                          <div style={{aspectRatio:'3/2',background:'#1565C022',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'3rem'}}>⚾</div>
+                        )}
+                        <div className="pc-body">
+                          <div className="pc-cat" style={{color:'#1565C0'}}>야구</div>
+                          {subcatLabel(p)&&<div className="pc-sub">{subcatLabel(p)}</div>}
+                          <div className="pc-title">{p.title}</div>
+                          <div className="pc-sum">{p.summary}</div>
+                          {(p.images||[]).length>1&&<div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:4}}>📷 사진 {p.images.length}장</div>}
+                          <div className="pc-meta"><span>{fmtDate(p.date)}</span>
+                            <div className="pc-actions" onClick={e=>e.stopPropagation()}>
+                              <button className="btn-sm" onClick={()=>requestEdit(p)}>수정</button>
+                              <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty">
+                    <div className="empty-icon">⚾</div>
+                    <div className="empty-title">야구 기록이 없어요</div>
+                    <div className="empty-desc">직관 사진과 함께 야구 기록을 남겨보세요!</div>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 야구 기록 추가</button>
                   </div>
                 )}
               </div>
@@ -1414,6 +1639,39 @@ export default function App() {
         </div>
       </section>
     </>)}
+
+    {/* ── PERSISTENT BOTTOM MUSIC BAR ── */}
+    {nowPlaying && (()=>{
+      const musicPosts = posts.filter(p=>p.cat==='music').sort((a,b)=>(a.order||a.id)-(b.order||b.id));
+      const curIdx = musicPosts.findIndex(p=>p.id===nowPlaying.post.id);
+      const goPrev = () => { const p=musicPosts[(curIdx-1+musicPosts.length)%musicPosts.length]; if(p){const v=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:v?.id});setPlayerPaused(false);} };
+      const goNext = () => { const p=musicPosts[(curIdx+1)%musicPosts.length]; if(p){const v=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:v?.id});setPlayerPaused(false);} };
+      const thumb = nowPlaying.videoId ? `https://img.youtube.com/vi/${nowPlaying.videoId}/default.jpg` : null;
+      return (
+        <div className="music-player-bar">
+          {/* 숨겨진 iframe: 화면 전환해도 음악 지속 */}
+          {activeCat!=='music' && (
+            <iframe
+              key={nowPlaying.videoId}
+              src={`https://www.youtube.com/embed/${nowPlaying.videoId}?autoplay=1&rel=0&enablejsapi=1${playerPaused?'&autoplay=0':''}`}
+              style={{position:'absolute',width:0,height:0,opacity:0,pointerEvents:'none'}}
+              allow="autoplay; encrypted-media"
+              title="bg-player"/>
+          )}
+          {thumb&&<img src={thumb} alt="" style={{width:44,height:44,borderRadius:6,objectFit:'cover',flexShrink:0}}/>}
+          <div className="music-player-info">
+            <div className="music-player-title">🎵 {nowPlaying.post.title}</div>
+            {nowPlaying.post.summary&&<div className="music-player-sub">{nowPlaying.post.summary}</div>}
+          </div>
+          <div className="music-player-btns">
+            <button className="music-player-btn" onClick={goPrev} title="이전 곡">⏮</button>
+            <button className="music-player-btn main" onClick={()=>{ if(activeCat!=='music') navToCat('music'); }} title="뮤직으로 이동">♫</button>
+            <button className="music-player-btn" onClick={goNext} title="다음 곡">⏭</button>
+          </div>
+          <button className="music-close-btn" onClick={()=>setNowPlaying(null)} title="닫기">✕</button>
+        </div>
+      );
+    })()}
 
 
     {/* ── CALENDAR ADD EVENT MODAL ── */}
@@ -1566,10 +1824,12 @@ export default function App() {
               <div className="fg">
                 <label>대표 이미지</label>
                 <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                  <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>{form.subcat==="photo"?"사진 여러 장 선택":"파일 선택"}</button>
+                  <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>
+                    {(form.subcat==="photo"||form.cat==="baseball")?"사진 여러 장 선택":"파일 선택"}
+                  </button>
                   {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
                 </div>
-                {form.subcat==='photo'&&(form.images||[]).length>0&&(
+                {(form.subcat==='photo'||form.cat==='baseball')&&(form.images||[]).length>0&&(
                   <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
                     {(form.images||[]).map((src,i)=>(
                       <div key={i} style={{position:'relative'}}>
@@ -1580,8 +1840,8 @@ export default function App() {
                     ))}
                   </div>
                 )}
-                {form.subcat!=='photo'&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
-                <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'} style={{display:'none'}} onChange={handleImg}/>
+                {(form.subcat!=='photo'&&form.cat!=='baseball')&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
+                <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'||form.cat==='baseball'} style={{display:'none'}} onChange={handleImg}/>
               </div>
               <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
                 <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
