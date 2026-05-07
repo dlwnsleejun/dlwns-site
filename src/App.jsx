@@ -125,13 +125,8 @@ function getTodayKr() {
 
 // ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
 // Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
-// ─── Market Data: Vercel API Route 호출 (서버사이드 → CORS 없음) ──────────────
-async function fetchMarketDataViaAI() {
-  // /api/market 은 같은 도메인이므로 CORS 없음
-  const r = await fetch('/api/market', { signal: AbortSignal.timeout(15000) });
-  if (!r.ok) throw new Error(`API ${r.status}`);
-  return r.json();
-}
+// ─── TradingView 위젯 (API 불필요, iframe 임베드) ─────────────────────────────
+// CORS 없음, 실시간 차트, 무료
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const HERO_BG = null;
@@ -425,101 +420,53 @@ footer b{color:var(--primary);}
 body.has-player{padding-bottom:76px;}
 `;
 
-// ─── AI Market Widget Component ───────────────────────────────────────────────
-function MarketTicker({ label, price, changePct, unit="", color="#0052CC" }) {
-  const up = parseFloat(changePct) >= 0;
-  const sign = up ? "▲" : "▼";
-  const chgColor = up ? "#DE350B" : "#00875A";
-  return (
-    <div style={{background:'#fff',border:'2px solid var(--border)',borderRadius:10,padding:'16px 20px',display:'flex',flexDirection:'column',gap:6,flex:1,minWidth:140,transition:'border-color 0.2s'}}
-      onMouseEnter={e=>e.currentTarget.style.borderColor=color}
-      onMouseLeave={e=>e.currentTarget.style.borderColor='var(--border)'}>
-      <div style={{fontSize:'0.7rem',fontWeight:700,color:'var(--muted)',letterSpacing:'0.08em',textTransform:'uppercase'}}>{label}</div>
-      <div style={{fontSize:'1.35rem',fontWeight:800,fontFamily:'Montserrat, sans-serif',color:'#111',lineHeight:1.1}}>
-        {unit}{typeof price==='number' ? price.toLocaleString(undefined,{maximumFractionDigits:2}) : '—'}
-      </div>
-      <div style={{fontSize:'0.8rem',fontWeight:700,color:chgColor}}>
-        {sign} {typeof changePct==='number' ? Math.abs(changePct).toFixed(2) : '0.00'}%
-        <span style={{fontSize:'0.68rem',fontWeight:400,color:'var(--muted)',marginLeft:6}}>전일 대비</span>
-      </div>
-    </div>
-  );
-}
+// ─── TradingView 마켓 인사이트 섹션 ─────────────────────────────────────────
+const TV_SYMBOLS = [
+  { label:"S&P 500", symbol:"SP:SPX",        color:"#0052CC" },
+  { label:"NASDAQ",  symbol:"NASDAQ:IXIC",   color:"#6554C0" },
+  { label:"KOSPI",   symbol:"KRX:KOSPI",     color:"#00875A" },
+  { label:"NVIDIA",  symbol:"NASDAQ:NVDA",   color:"#76b900" },
+  { label:"Apple",   symbol:"NASDAQ:AAPL",   color:"#555555" },
+  { label:"Tesla",   symbol:"NASDAQ:TSLA",   color:"#cc0000" },
+  { label:"삼성전자", symbol:"KRX:005930",    color:"#1428A0" },
+  { label:"SK하이닉스",symbol:"KRX:000660",  color:"#EA001E" },
+];
 
-function AIMarketSection({ marketAI, marketLoading, marketError, onRefresh }) {
-  const d = marketAI || {};
+function MarketSection() {
+  const [sel, setSel] = useState(0);
+  const src = `https://s.tradingview.com/widgetembed/?frameElementId=tv_chart&symbol=${encodeURIComponent(TV_SYMBOLS[sel].symbol)}&interval=D&hidesidetoolbar=1&hidetoptoolbar=0&symboledit=0&saveimage=0&toolbarbg=F1F3F6&studies=[]&theme=light&style=3&timezone=Asia%2FSeoul&withdateranges=1&showpopupbutton=0&locale=kr&utm_source=dlwnsleejun.com&utm_medium=widget`;
   return (
     <section className="stock-section">
       <div className="stock-inner">
         <div className="section-head">
           <div>
             <div className="section-title">마켓 인사이트</div>
-            <div className="section-sub" style={{display:'flex',alignItems:'center',gap:6}}>
-              {marketLoading ? (
-                <><span style={{display:'inline-block',animation:'spin 1s linear infinite'}}>⏳</span> AI가 실시간 데이터를 검색 중...</>
-              ) : marketError ? (
-                '⚠️ 데이터 로드 실패'
-              ) : d.updated_at ? (
-                <><span style={{color:'#00875A'}}>✅</span> {d.updated_at} 기준 (AI 웹검색)</>
-              ) : 'AI 웹검색으로 실시간 시세 조회'}
-            </div>
+            <div className="section-sub">실시간 차트 (TradingView)</div>
           </div>
-          <button className="btn btn-outline" style={{fontSize:'0.75rem',padding:'6px 14px',display:'flex',alignItems:'center',gap:6}}
-            onClick={onRefresh} disabled={marketLoading}>
-            <span style={{display:'inline-block',animation:marketLoading?'spin 1s linear infinite':'none'}}>🔄</span>
-            {marketLoading ? '조회 중...' : '새로고침'}
-          </button>
         </div>
-
-        {marketLoading ? (
-          <div style={{textAlign:'center',padding:'56px 0',color:'var(--muted)'}}>
-            <div style={{fontSize:'2.5rem',marginBottom:16,display:'inline-block',animation:'spin 2s linear infinite'}}>🤖</div>
-            <div style={{fontWeight:700,fontSize:'1rem',marginBottom:6}}>AI가 실시간 시장 데이터를 검색하고 있습니다</div>
-            <div style={{fontSize:'0.78rem',color:'#bbb'}}>웹에서 S&P 500, KOSPI, 주요 종목 시세를 가져오는 중...</div>
-          </div>
-        ) : marketError ? (
-          <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)',background:'#fafafa',borderRadius:8,border:'1px solid var(--border)'}}>
-            <div style={{fontSize:'2rem',marginBottom:12}}>📡</div>
-            <div style={{fontWeight:700,marginBottom:8}}>AI 검색 연결 실패</div>
-            <div style={{fontSize:'0.78rem',lineHeight:1.8,color:'#999',marginBottom:16}}>
-              네트워크 상태를 확인하고 새로고침 버튼을 눌러주세요.<br/>
-              잠시 후 다시 시도하면 정상 작동합니다.
-            </div>
-            <button className="btn btn-primary" style={{fontSize:'0.8rem'}} onClick={onRefresh}>🔄 다시 시도</button>
-          </div>
-        ) : !d.sp500 ? (
-          <div style={{textAlign:'center',padding:'48px 0',color:'var(--muted)'}}>
-            <div style={{fontSize:'2rem',marginBottom:12}}>📊</div>
-            <div style={{marginBottom:16}}>새로고침을 눌러 실시간 시장 데이터를 불러오세요</div>
-            <button className="btn btn-primary" style={{fontSize:'0.8rem'}} onClick={onRefresh}>🤖 AI 시세 조회</button>
-          </div>
-        ) : (
-          <>
-            {/* 지수 섹션 */}
-            <div style={{marginBottom:16}}>
-              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:10}}>📈 주요 지수</div>
-              <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-                {d.sp500 && <MarketTicker label="S&P 500" price={d.sp500.price} changePct={d.sp500.change_pct} color="#0052CC"/>}
-                {d.nasdaq && <MarketTicker label="NASDAQ" price={d.nasdaq.price} changePct={d.nasdaq.change_pct} color="#6554C0"/>}
-                {d.kospi && <MarketTicker label="KOSPI" price={d.kospi.price} changePct={d.kospi.change_pct} color="#00875A"/>}
-              </div>
-            </div>
-            {/* 개별 종목 섹션 */}
-            <div style={{marginBottom:8}}>
-              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--muted)',letterSpacing:'0.1em',textTransform:'uppercase',marginBottom:10}}>🏢 주요 종목</div>
-              <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-                {d.nvda && <MarketTicker label={d.nvda.name||"NVIDIA"} price={d.nvda.price} changePct={d.nvda.change_pct} unit="$" color="#76b900"/>}
-                {d.aapl && <MarketTicker label={d.aapl.name||"Apple"} price={d.aapl.price} changePct={d.aapl.change_pct} unit="$" color="#555"/>}
-                {d.tsla && <MarketTicker label={d.tsla.name||"Tesla"} price={d.tsla.price} changePct={d.tsla.change_pct} unit="$" color="#cc0000"/>}
-                {d.samsung && <MarketTicker label={d.samsung.name||"삼성전자"} price={d.samsung.price} changePct={d.samsung.change_pct} color="#1428A0"/>}
-                {d.skhynix && <MarketTicker label={d.skhynix.name||"SK하이닉스"} price={d.skhynix.price} changePct={d.skhynix.change_pct} color="#EA001E"/>}
-              </div>
-            </div>
-            <div style={{fontSize:'0.7rem',color:'#bbb',marginTop:12,paddingTop:12,borderTop:'1px solid var(--border)'}}>
-              💡 Anthropic API + 웹검색으로 실시간 수집 · 투자 참고용으로만 활용하세요
-            </div>
-          </>
-        )}
+        {/* 종목 선택 탭 */}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
+          {TV_SYMBOLS.map((s,i)=>(
+            <button key={i} onClick={()=>setSel(i)}
+              style={{padding:'5px 12px',borderRadius:20,fontSize:'0.75rem',fontWeight:600,cursor:'pointer',border:`2px solid ${sel===i?s.color:'var(--border)'}`,background:sel===i?s.color:'#fff',color:sel===i?'#fff':s.color,transition:'all 0.15s'}}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {/* TradingView iframe */}
+        <div style={{borderRadius:8,overflow:'hidden',border:'1px solid var(--border)',background:'#fff'}}>
+          <iframe
+            key={sel}
+            src={src}
+            style={{width:'100%',height:400,border:'none',display:'block'}}
+            allowTransparency={true}
+            scrolling="no"
+            title={TV_SYMBOLS[sel].label}
+          />
+        </div>
+        <div style={{fontSize:'0.7rem',color:'#bbb',marginTop:8}}>
+          💡 TradingView 실시간 데이터 · 투자 참고용으로만 활용하세요
+        </div>
       </div>
     </section>
   );
@@ -551,10 +498,6 @@ export default function App() {
   // Music player state
   const [nowPlaying,setNowPlaying] = useState(null); // {post, videoId}
   const [playerPaused,setPlayerPaused] = useState(false);
-  // AI Market data state (Anthropic API + 웹검색)
-  const [marketAI,setMarketAI]       = useState(null);   // AI가 가져온 시장 데이터
-  const [marketLoading,setMarketLoading] = useState(false);
-  const [marketError,setMarketError] = useState(false);
   // Comments state
   const [comments,setComments] = useState({}); // postId -> [{id,nick,body,date}]
   const [commentNick,setCommentNick] = useState('');
@@ -737,22 +680,6 @@ export default function App() {
     };
     reader.readAsText(file);
   };
-
-  // ── AI Market Data Fetch ────────────────────────────────────────────────────
-  const fetchAIMarket = async () => {
-    setMarketLoading(true); setMarketError(false);
-    try {
-      const data = await fetchMarketDataViaAI();
-      setMarketAI(data);
-    } catch(e) {
-      console.error("AI market fetch failed:", e);
-      setMarketError(true);
-    } finally {
-      setMarketLoading(false);
-    }
-  };
-  // 페이지 로드 시 자동으로 AI 마켓 데이터 가져오기
-  useEffect(()=>{ fetchAIMarket(); }, []);
 
   // ── Comment helpers ────────────────────────────────────────────────────────
   const saveComment = async (postId) => {
@@ -1160,15 +1087,8 @@ export default function App() {
         </section>
       )}
 
-      {/* ── STOCK (AI Market) ── */}
-      {isAll && (
-        <AIMarketSection
-          marketAI={marketAI}
-          marketLoading={marketLoading}
-          marketError={marketError}
-          onRefresh={fetchAIMarket}
-        />
-      )}
+      {/* ── STOCK (TradingView) ── */}
+      {isAll && <MarketSection />}
 
       {/* ── CONTENT ── */}
       <section className="content-section" ref={contentRef}>
