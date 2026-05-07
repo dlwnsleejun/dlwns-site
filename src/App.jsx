@@ -125,79 +125,12 @@ function getTodayKr() {
 
 // ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
 // Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
-// ─── Market Data: 다중 공개 API (CORS 없음) ───────────────────────────────────
-async function fetchStooqQuote(symbol) {
-  const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-  if (!r.ok) return null;
-  const text = await r.text();
-  const lines = text.trim().split('\n');
-  if (lines.length < 2) return null;
-  const cols = lines[1].split(',');
-  // Symbol,Date,Time,Open,High,Low,Close,Volume
-  const close = parseFloat(cols[6]);
-  const open  = parseFloat(cols[3]);
-  if (!close || isNaN(close) || close <= 0) return null;
-  const changePct = open && open > 0 ? ((close - open) / open * 100) : 0;
-  return { price: close, change_pct: parseFloat(changePct.toFixed(2)) };
-}
-
-// Yahoo Finance via CORS proxy fallback
-async function fetchYahooQuote(ticker) {
-  const proxies = [
-    `https://corsproxy.io/?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`)}`,
-    `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1d&range=2d`)}`,
-  ];
-  for (const url of proxies) {
-    try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!r.ok) continue;
-      const json = await r.json();
-      const result = json?.chart?.result?.[0];
-      if (!result) continue;
-      const closes = result.indicators?.quote?.[0]?.close?.filter(Boolean);
-      if (!closes || closes.length < 1) continue;
-      const last = closes[closes.length - 1];
-      const prev = closes.length > 1 ? closes[closes.length - 2] : last;
-      const changePct = prev ? ((last - prev) / prev * 100) : 0;
-      return { price: parseFloat(last.toFixed(2)), change_pct: parseFloat(changePct.toFixed(2)) };
-    } catch { continue; }
-  }
-  return null;
-}
-
+// ─── Market Data: Vercel API Route 호출 (서버사이드 → CORS 없음) ──────────────
 async function fetchMarketDataViaAI() {
-  // 종목별 심볼 (Stooq → Yahoo fallback)
-  const targets = [
-    { key: 'sp500',   stooq: '^spx',       yahoo: '%5EGSPC',    name: 'S&P 500' },
-    { key: 'nasdaq',  stooq: '^ndx',        yahoo: '%5EIXIC',    name: 'NASDAQ' },
-    { key: 'kospi',   stooq: '^kospi',      yahoo: '%5EKS11',    name: 'KOSPI' },
-    { key: 'nvda',    stooq: 'nvda.us',     yahoo: 'NVDA',       name: 'NVIDIA' },
-    { key: 'aapl',    stooq: 'aapl.us',     yahoo: 'AAPL',       name: 'Apple' },
-    { key: 'tsla',    stooq: 'tsla.us',     yahoo: 'TSLA',       name: 'Tesla' },
-    { key: 'samsung', stooq: '005930.kr',   yahoo: '005930.KS',  name: '삼성전자' },
-    { key: 'skhynix', stooq: '000660.kr',   yahoo: '000660.KS',  name: 'SK하이닉스' },
-  ];
-
-  const results = {};
-  await Promise.all(
-    targets.map(async ({ key, stooq, yahoo, name }) => {
-      try {
-        // 1차: Stooq
-        let q = await fetchStooqQuote(stooq);
-        // 2차: Yahoo proxy fallback
-        if (!q) q = await fetchYahooQuote(yahoo);
-        if (q) results[key] = { ...q, name };
-      } catch { /* 개별 실패는 skip */ }
-    })
-  );
-
-  if (Object.keys(results).length === 0) throw new Error("모든 API 실패");
-
-  const now = new Date();
-  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-  results.updated_at = `${kst.getUTCFullYear()}.${kst.getUTCMonth()+1}.${kst.getUTCDate()} ${kst.getUTCHours()}:${String(kst.getUTCMinutes()).padStart(2,'0')} KST`;
-  return results;
+  // /api/market 은 같은 도메인이므로 CORS 없음
+  const r = await fetch('/api/market', { signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error(`API ${r.status}`);
+  return r.json();
 }
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -628,6 +561,8 @@ export default function App() {
   const [commentBody,setCommentBody] = useState('');
   // Music drag-n-drop
   const [dragIdx,setDragIdx] = useState(null);
+  // DB 진단 모달
+  const [dbDiag,setDbDiag] = useState(null); // null | {rows, raw}
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
   const iframeRef=useRef();
@@ -963,21 +898,15 @@ export default function App() {
           <input type="file" accept=".json" style={{display:'none'}} id="import-file" onChange={importData}/>
           <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px'}} title="데이터 백업/복구"
             onClick={async ()=>{
-              const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소) / ESC: 취소\n\n확인: 현재 데이터를 JSON 파일로 저장\n취소: JSON 파일에서 데이터 복원");
+              const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소)\n\n확인: 현재 데이터를 JSON 파일로 저장\n취소: JSON 파일에서 데이터 복원");
               if(choice) exportData();
               else document.getElementById('import-file').click();
             }}>💾 백업</button>
-          <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px'}} title="Supabase 데이터 진단"
+          <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px',color:'#00875A',borderColor:'#b3e6cc'}} title="DB 진단 - Supabase 저장 데이터 확인"
             onClick={async ()=>{
-              // Supabase에서 직접 원본 데이터 조회
-              try {
-                const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
-                if(!rows || rows.length===0){ alert("Supabase에 저장된 글이 없습니다.\n\nSUPA_KEY가 올바른지 확인하세요."); return; }
-                const studyPosts = rows.filter(r=>r.data?.cat==='study');
-                const summary = rows.map(r=>`[${r.data?.cat}/${r.data?.subcat}] ${r.data?.title}`).join('\n');
-                alert(`📊 Supabase 전체 글 ${rows.length}개\n스터디: ${studyPosts.length}개\n\n${summary}`);
-              } catch(e){ alert("Supabase 연결 실패: " + e.message); }
-            }}>🔍 진단</button>
+              const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
+              setDbDiag({ rows: rows || [] });
+            }}>🔍 DB</button>
           <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
           <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
@@ -1778,5 +1707,76 @@ export default function App() {
         </div>
       </div>
     )}
+
+    {/* ── DB 진단 모달 ── */}
+    {dbDiag && (
+      <div className="modal-bg" onClick={()=>setDbDiag(null)}>
+        <div className="modal" style={{maxWidth:700}} onClick={e=>e.stopPropagation()}>
+          <div className="modal-head">
+            <div className="modal-title">🔍 Supabase DB 진단 — 총 {dbDiag.rows.length}개 글</div>
+            <button className="modal-x" onClick={()=>setDbDiag(null)}>✕</button>
+          </div>
+          <div className="modal-body" style={{padding:'14px 22px'}}>
+            {dbDiag.rows.length === 0 ? (
+              <div style={{color:'var(--red)',fontWeight:700,padding:'20px 0',textAlign:'center'}}>
+                ⚠️ Supabase에 저장된 글이 없습니다.<br/>
+                <span style={{fontSize:'0.8rem',fontWeight:400,color:'var(--muted)'}}>SUPA_KEY가 실제 anon key로 교체되었는지 확인하세요.</span>
+              </div>
+            ) : (
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.78rem'}}>
+                <thead>
+                  <tr style={{background:'var(--bg)',borderBottom:'2px solid var(--border)'}}>
+                    <th style={{padding:'8px 10px',textAlign:'left',color:'var(--muted)'}}>ID</th>
+                    <th style={{padding:'8px 10px',textAlign:'left',color:'var(--muted)'}}>카테고리</th>
+                    <th style={{padding:'8px 10px',textAlign:'left',color:'var(--muted)'}}>서브카테고리</th>
+                    <th style={{padding:'8px 10px',textAlign:'left',color:'var(--muted)'}}>제목</th>
+                    <th style={{padding:'8px 10px',textAlign:'left',color:'var(--muted)'}}>날짜</th>
+                    <th style={{padding:'8px 10px',textAlign:'left',color:'var(--muted)'}}>복구</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dbDiag.rows.map((r,i)=>{
+                    const p = r.data || {};
+                    const inMemory = posts.find(pp=>pp.id===r.post_id);
+                    const isStudyEtc = p.cat==='study' && p.subcat==='etc';
+                    return (
+                      <tr key={r.post_id} style={{borderBottom:'1px solid var(--border)',background:isStudyEtc?'#fffbe6':i%2===0?'#fff':'#fafafa'}}>
+                        <td style={{padding:'7px 10px',fontFamily:'monospace',color:'var(--muted)',fontSize:'0.68rem'}}>{r.post_id}</td>
+                        <td style={{padding:'7px 10px'}}>
+                          <span style={{color:CAT[p.cat]?.color,fontWeight:700}}>{CAT[p.cat]?.label||p.cat}</span>
+                        </td>
+                        <td style={{padding:'7px 10px',color:'var(--sub)'}}>{p.subcat||'-'}</td>
+                        <td style={{padding:'7px 10px',fontWeight:600,maxWidth:200,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title||'(제목없음)'}</td>
+                        <td style={{padding:'7px 10px',color:'var(--muted)',fontSize:'0.72rem'}}>{p.date||'-'}</td>
+                        <td style={{padding:'7px 10px'}}>
+                          {!inMemory && (
+                            <button className="btn-sm" style={{fontSize:'0.68rem',color:'var(--green)',borderColor:'#b3e6cc'}}
+                              onClick={async ()=>{
+                                const restored = {...p, id:r.post_id};
+                                const u = [restored, ...posts];
+                                setPosts(u); postsRef.current=u;
+                                setDbDiag(prev=>({...prev})); // re-render
+                              }}>복구</button>
+                          )}
+                          {inMemory && <span style={{color:'var(--muted)',fontSize:'0.68rem'}}>✓ 표시중</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+            <div style={{marginTop:14,padding:'10px 12px',background:'#f0f7ff',borderRadius:6,fontSize:'0.75rem',color:'var(--sub)',lineHeight:1.7}}>
+              💡 <b>스터디/기타 글이 보이는데 앱에 안 보인다면</b>: subcat 값이 다른 것입니다. 복구 버튼을 눌러 메모리에 올린 뒤 수정하세요.<br/>
+              💡 <b>목록이 비어있다면</b>: GitHub의 SUPA_KEY를 실제 값으로 교체 후 다시 배포하세요.
+            </div>
+          </div>
+          <div className="modal-foot">
+            <button className="btn btn-outline" onClick={()=>setDbDiag(null)}>닫기</button>
+          </div>
+        </div>
+      </div>
+    )}
   </>);
 }
+
