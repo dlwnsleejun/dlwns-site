@@ -884,7 +884,6 @@ export default function App() {
   const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
 
   const stocks = [];
-  const recent = [...posts].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
 
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
