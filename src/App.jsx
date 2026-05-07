@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── Supabase Config ──────────────────────────────────────────────────────────
 // ⚠️  아래 두 줄에 본인의 Supabase 정보를 입력하세요
-const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co";
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE";
+const SUPA_URL = "https://YOUR_PROJECT_ID.supabase.co";
+const SUPA_KEY = "YOUR_ANON_KEY";
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
@@ -612,7 +612,6 @@ export default function App() {
   const [showAllMode,setShowAllMode] = useState(false);
   // Music player state
   const [nowPlaying,setNowPlaying] = useState(null); // {post, videoId}
-  const [playerOpen,setPlayerOpen] = useState(false);
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
 
@@ -1304,19 +1303,56 @@ export default function App() {
                       <h3>플레이리스트</h3>
                       <span className="music-count">{filtered.length}곡</span>
                     </div>
-                    <div className="music-playlist" style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 8px 8px',overflow:'hidden',marginBottom:24}}>
+                    {/* 인라인 플레이어 */}
+                    {nowPlaying&&(
+                      <div style={{background:'#000',borderRadius:'0 0 0 0',overflow:'hidden',position:'relative',marginBottom:0}}>
+                        <div style={{aspectRatio:'16/9',width:'100%'}}>
+                          <iframe
+                            key={nowPlaying.videoId}
+                            src={`https://www.youtube.com/embed/${nowPlaying.videoId}?autoplay=1&rel=0`}
+                            style={{width:'100%',height:'100%',border:'none',display:'block'}}
+                            allowFullScreen allow="autoplay; encrypted-media" title={nowPlaying.post.title}/>
+                        </div>
+                        <div style={{background:'#111',padding:'10px 16px',display:'flex',alignItems:'center',gap:10}}>
+                          <span style={{fontSize:'1rem'}}>🎵</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontSize:'0.85rem',fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{nowPlaying.post.title}</div>
+                            {nowPlaying.post.summary&&<div style={{fontSize:'0.72rem',color:'#aaa',marginTop:2}}>{nowPlaying.post.summary}</div>}
+                          </div>
+                          <div style={{display:'flex',gap:6}}>
+                            <button style={{background:'transparent',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:4,padding:'4px 10px',fontSize:'0.72rem',cursor:'pointer'}}
+                              onClick={()=>{
+                                const music=filtered;
+                                const idx=music.findIndex(p=>p.id===nowPlaying.post.id);
+                                const prev=music[(idx-1+music.length)%music.length];
+                                if(prev){const v=parseVideoUrl(prev.videoUrl||'');setNowPlaying({post:prev,videoId:v?.id});}
+                              }}>⏮ 이전</button>
+                            <button style={{background:'transparent',border:'1px solid rgba(255,255,255,0.2)',color:'#fff',borderRadius:4,padding:'4px 10px',fontSize:'0.72rem',cursor:'pointer'}}
+                              onClick={()=>{
+                                const music=filtered;
+                                const idx=music.findIndex(p=>p.id===nowPlaying.post.id);
+                                const next=music[(idx+1)%music.length];
+                                if(next){const v=parseVideoUrl(next.videoUrl||'');setNowPlaying({post:next,videoId:v?.id});}
+                              }}>다음 ⏭</button>
+                            <button style={{background:'transparent',border:'1px solid rgba(255,255,255,0.2)',color:'#aaa',borderRadius:4,padding:'4px 8px',fontSize:'0.72rem',cursor:'pointer'}}
+                              onClick={()=>setNowPlaying(null)}>✕</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div className="music-playlist" style={{border:'1px solid var(--border)',borderTop:nowPlaying?'none':'1px solid var(--border)',borderRadius:nowPlaying?'0 0 8px 8px':'0 0 8px 8px',overflow:'hidden',marginBottom:24}}>
                       {filtered.map((p,idx)=>{
                         const v=parseVideoUrl(p.videoUrl||'');
                         const isPlay=nowPlaying?.post.id===p.id;
                         const thumb=v?`https://img.youtube.com/vi/${v.id}/mqdefault.jpg`:null;
                         return(
                           <div key={p.id} className={`music-item${isPlay?' playing':''}`}
-                            onClick={()=>{setNowPlaying({post:p,videoId:v?.id});setPlayerOpen(true);}}>
-                            <div className="music-num">{isPlay?'▶':idx+1}</div>
+                            onClick={()=>{const vv=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:vv?.id});}}>
+                            <div className="music-num" style={{color:isPlay?'#E91E8C':'var(--muted)'}}>{isPlay?'♪':idx+1}</div>
                             {thumb?<img className="music-thumb" src={thumb} alt=""/>:
                               <div className="music-thumb-placeholder">🎵</div>}
                             <div className="music-info">
-                              <div className="music-title">{p.title}</div>
+                              <div className="music-title" style={{color:isPlay?'#E91E8C':'var(--text)'}}>{p.title}</div>
                               <div className="music-sub">{p.summary||p.date}</div>
                             </div>
                             <div className="music-actions" onClick={e=>e.stopPropagation()}>
@@ -1324,8 +1360,8 @@ export default function App() {
                               <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
                             </div>
                             <button className={`music-play-btn${isPlay?' active':''}`}
-                              onClick={e=>{e.stopPropagation();setNowPlaying({post:p,videoId:v?.id});setPlayerOpen(true);}}>
-                              {isPlay?'⏸':'▶'}
+                              onClick={e=>{e.stopPropagation();const vv=parseVideoUrl(p.videoUrl||'');setNowPlaying({post:p,videoId:vv?.id});}}>
+                              {isPlay?'■':'▶'}
                             </button>
                           </div>
                         );
@@ -1436,39 +1472,6 @@ export default function App() {
     )}
 
 
-    {/* ── MUSIC PLAYER BAR ── */}
-    {playerOpen && nowPlaying && (
-      <div className="music-player-bar">
-        <div style={{fontSize:'1.3rem'}}>🎵</div>
-        <div className="music-player-info">
-          <div className="music-player-title">{nowPlaying.post.title}</div>
-          <div className="music-player-sub">{nowPlaying.post.summary}</div>
-        </div>
-        <div className="music-player-btns">
-          {/* 이전 곡 */}
-          <button className="music-player-btn" onClick={()=>{
-            const music=posts.filter(p=>p.cat==='music'&&p.videoUrl);
-            const idx=music.findIndex(p=>p.id===nowPlaying.post.id);
-            const prev=music[(idx-1+music.length)%music.length];
-            if(prev){const v=parseVideoUrl(prev.videoUrl||'');setNowPlaying({post:prev,videoId:v?.id});}
-          }}>⏮</button>
-          {/* YouTube iframe 팝업 */}
-          <button className="music-player-btn main" onClick={()=>{
-            if(nowPlaying.videoId){
-              window.open(`https://www.youtube.com/watch?v=${nowPlaying.videoId}`,'_blank');
-            }
-          }}>▶</button>
-          {/* 다음 곡 */}
-          <button className="music-player-btn" onClick={()=>{
-            const music=posts.filter(p=>p.cat==='music'&&p.videoUrl);
-            const idx=music.findIndex(p=>p.id===nowPlaying.post.id);
-            const next=music[(idx+1)%music.length];
-            if(next){const v=parseVideoUrl(next.videoUrl||'');setNowPlaying({post:next,videoId:v?.id});}
-          }}>⏭</button>
-        </div>
-        <button className="music-close-btn" onClick={()=>setPlayerOpen(false)}>✕</button>
-      </div>
-    )}
 
     <footer><b>dlwnsleejun.com</b> — 이준 기록집</footer>
 
@@ -1476,60 +1479,121 @@ export default function App() {
     {modal==='write'&&(
       <div className="modal-bg" onClick={()=>setModal(null)}>
         <div className="modal" onClick={e=>e.stopPropagation()}>
-          <div className="modal-head"><div className="modal-title">{editing?'글 수정':'새 글 작성'}</div><button className="modal-x" onClick={()=>setModal(null)}>✕</button></div>
-          <div className="modal-body">
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-              <div className="fg"><label>카테고리</label>
-                <select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
-                  {CATS.slice(1).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                </select>
+
+          {/* ── 뮤직 전용 폼 ── */}
+          {form.cat==='music' ? (<>
+            <div className="modal-head">
+              <div className="modal-title" style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontSize:'1.2rem'}}>🎵</span>
+                {editing?'음악 수정':'음악 추가'}
               </div>
-              <div className="fg"><label>서브카테고리</label>
-                <select value={form.subcat} onChange={e=>setForm({...form,subcat:e.target.value})}>
-                  {(SUBCATS[form.cat]||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
-                </select>
+              <button className="modal-x" onClick={()=>setModal(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              {/* 유튜브 링크 미리보기 */}
+              {(()=>{
+                const v = parseVideoUrl(form.videoUrl||'');
+                if(!v) return null;
+                return (
+                  <div style={{borderRadius:8,overflow:'hidden',marginBottom:4,background:'#000',aspectRatio:'16/9',width:'100%'}}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${v.id}?autoplay=0`}
+                      style={{width:'100%',height:'100%',border:'none'}}
+                      allowFullScreen title="미리보기"/>
+                  </div>
+                );
+              })()}
+              <div className="fg">
+                <label style={{fontSize:'0.8rem',color:'var(--muted)'}}>유튜브 링크 <span style={{color:'#E91E8C'}}>*</span></label>
+                <input type="text" value={form.videoUrl}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  onChange={e=>setForm({...form,videoUrl:e.target.value})}
+                  style={{fontFamily:'monospace',fontSize:'0.82rem'}}
+                  autoFocus/>
+                {form.videoUrl && !parseVideoUrl(form.videoUrl) && (
+                  <div style={{fontSize:'0.75rem',color:'#DE350B',marginTop:4}}>⚠️ 유효하지 않은 유튜브 링크입니다</div>
+                )}
+              </div>
+              <div className="fg">
+                <label style={{fontSize:'0.8rem',color:'var(--muted)'}}>곡 제목 <span style={{color:'#E91E8C'}}>*</span></label>
+                <input type="text" value={form.title}
+                  placeholder="노래 제목을 입력하세요"
+                  onChange={e=>setForm({...form,title:e.target.value})}/>
+              </div>
+              <div className="fg">
+                <label style={{fontSize:'0.8rem',color:'var(--muted)'}}>아티스트 / 메모 <span style={{color:'var(--muted)',fontWeight:400}}>(선택)</span></label>
+                <input type="text" value={form.summary}
+                  placeholder="아티스트명, 앨범, 메모..."
+                  onChange={e=>setForm({...form,summary:e.target.value})}/>
               </div>
             </div>
-            <div className="fg"><label>제목</label><input type="text" value={form.title} placeholder="제목을 입력하세요" onChange={e=>setForm({...form,title:e.target.value})}/></div>
-            <div className="fg"><label>요약</label><textarea rows={2} value={form.summary} placeholder="한 줄 요약" onChange={e=>setForm({...form,summary:e.target.value})}/></div>
-            <div className="fg"><label>본문</label><textarea rows={5} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
-            {(form.cat==='inspiration') && (
-              <div className="fg">
-                <label>영상 URL (유튜브 / 쇼츠 / 인스타 릴스)</label>
-                {form.cat==='music'&&<div style={{background:'#E91E8C11',border:'1px solid #E91E8C33',borderRadius:6,padding:'8px 12px',marginBottom:8,fontSize:'0.78rem',color:'#E91E8C'}}>🎵 뮤직 카테고리: 유튜브 링크를 입력하면 플레이리스트에 추가됩니다</div>}
-              <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
-                <div className="video-hint">유튜브, 유튜브 쇼츠, 인스타그램 릴스 링크를 입력하세요</div>
+            <div className="modal-foot">
+              <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
+              <button className="btn btn-primary"
+                style={{background:'#E91E8C',borderColor:'#E91E8C',opacity:(form.title&&form.videoUrl&&parseVideoUrl(form.videoUrl))?1:0.4}}
+                onClick={savePost}
+                disabled={!form.title||!form.videoUrl||!parseVideoUrl(form.videoUrl)}>
+                🎵 플레이리스트에 추가
+              </button>
+            </div>
+          </>) : (<>
+
+          {/* ── 일반 글쓰기 폼 ── */}
+            <div className="modal-head"><div className="modal-title">{editing?'글 수정':'새 글 작성'}</div><button className="modal-x" onClick={()=>setModal(null)}>✕</button></div>
+            <div className="modal-body">
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+                <div className="fg"><label>카테고리</label>
+                  <select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
+                    {CATS.slice(1).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                  </select>
+                </div>
+                <div className="fg"><label>서브카테고리</label>
+                  <select value={form.subcat} onChange={e=>setForm({...form,subcat:e.target.value})}>
+                    {(SUBCATS[form.cat]||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+                  </select>
+                </div>
               </div>
-            )}
-            <div className="fg">
-              <label>대표 이미지</label>
-              <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>{form.subcat==="photo"?"사진 여러 장 선택":"파일 선택"}</button>
-                {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
-              </div>
-              {form.subcat==='photo'&&(form.images||[]).length>0&&(
-                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
-                  {(form.images||[]).map((src,i)=>(
-                    <div key={i} style={{position:'relative'}}>
-                      <img src={src} alt="" style={{width:'100%',height:70,objectFit:'cover',borderRadius:4,display:'block'}}/>
-                      <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
-                        style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:18,height:18,fontSize:'0.6rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-                    </div>
-                  ))}
+              <div className="fg"><label>제목</label><input type="text" value={form.title} placeholder="제목을 입력하세요" onChange={e=>setForm({...form,title:e.target.value})}/></div>
+              <div className="fg"><label>요약</label><textarea rows={2} value={form.summary} placeholder="한 줄 요약" onChange={e=>setForm({...form,summary:e.target.value})}/></div>
+              <div className="fg"><label>본문</label><textarea rows={5} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
+              {(form.cat==='inspiration') && (
+                <div className="fg">
+                  <label>영상 URL (유튜브 / 쇼츠 / 인스타 릴스)</label>
+                  <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
+                  <div className="video-hint">유튜브, 유튜브 쇼츠, 인스타그램 릴스 링크를 입력하세요</div>
                 </div>
               )}
-              {form.subcat!=='photo'&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
-              <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'} style={{display:'none'}} onChange={handleImg}/>
+              <div className="fg">
+                <label>대표 이미지</label>
+                <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                  <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>{form.subcat==="photo"?"사진 여러 장 선택":"파일 선택"}</button>
+                  {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
+                </div>
+                {form.subcat==='photo'&&(form.images||[]).length>0&&(
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
+                    {(form.images||[]).map((src,i)=>(
+                      <div key={i} style={{position:'relative'}}>
+                        <img src={src} alt="" style={{width:'100%',height:70,objectFit:'cover',borderRadius:4,display:'block'}}/>
+                        <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
+                          style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:18,height:18,fontSize:'0.6rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {form.subcat!=='photo'&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
+                <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'} style={{display:'none'}} onChange={handleImg}/>
+              </div>
+              <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
+                <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.83rem'}}>대표 글로 고정 (전체 페이지)</label>
+              </div>
             </div>
-            <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
-              <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
-              <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.83rem'}}>대표 글로 고정 (전체 페이지)</label>
+            <div className="modal-foot">
+              <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
+              <button className="btn btn-primary" onClick={savePost} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
             </div>
-          </div>
-          <div className="modal-foot">
-            <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
-            <button className="btn btn-primary" onClick={savePost} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
-          </div>
+          </>)}
+
         </div>
       </div>
     )}
