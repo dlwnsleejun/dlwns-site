@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── Supabase Config ──────────────────────────────────────────────────────────
 // ⚠️  아래 두 줄에 본인의 Supabase 정보를 입력하세요
-const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co";
+const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co/rest/v1/";
 const SUPA_KEY = "=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE";
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
