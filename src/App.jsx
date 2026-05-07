@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
 // ─── Storage (localStorage) ───────────────────────────────────────────────────
-const K = { posts:"dlwns-posts5", profile:"dlwns-profile4", stocks:"dlwns-stocks1" };
+const K = { posts:"dlwns-posts5", profile:"dlwns-profile4", stocks:"dlwns-stocks1", calendar:"dlwns-calendar1" };
 
 function load(key) {
   try {
@@ -49,7 +49,7 @@ const CATS = [
 const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
 
 const SUBCATS = {
-  insight:     [{ id:"all",label:"전체" },{ id:"it",label:"IT" },{ id:"economy",label:"경제" },{ id:"society",label:"사회" },{ id:"etc",label:"기타" }],
+  insight:     [{ id:"all",label:"전체" },{ id:"it",label:"AI" },{ id:"economy",label:"경제" },{ id:"society",label:"사회" },{ id:"etc",label:"기타" }],
   inspiration: [{ id:"all",label:"전체" },{ id:"video",label:"유튜브/쇼츠" },{ id:"reels",label:"인스타 릴스" },{ id:"book",label:"도서" },{ id:"design",label:"디자인" }],
   career:      [{ id:"all",label:"전체" },{ id:"job",label:"취업/이직" },{ id:"project",label:"프로젝트" },{ id:"cert",label:"자격증" },{ id:"etc",label:"기타" }],
   study:       [{ id:"all",label:"전체" },{ id:"english",label:"영어" },{ id:"japanese",label:"일본어" },{ id:"adsp",label:"ADSP" },{ id:"logistics",label:"물류관리사" },{ id:"etc",label:"기타" }],
@@ -233,6 +233,51 @@ button{font-family:'Noto Sans KR',sans-serif;}
 .subcat-tab:hover{color:var(--text);}
 .subcat-tab.active{font-weight:700;border-bottom-color:currentColor;}
 /* ── STOCK ── */
+
+/* ── CALENDAR ── */
+.calendar-section{background:#fff;padding:48px 0 0;border-bottom:1px solid var(--border);}
+.calendar-inner{max-width:1280px;margin:0 auto;padding:0 32px;}
+.cal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 0 12px;}
+.cal-month{font-family:'Montserrat',sans-serif;font-size:1.6rem;font-weight:700;color:#111;}
+.cal-year{font-size:0.88rem;color:var(--muted);margin-left:8px;font-weight:500;}
+.cal-nav{display:flex;gap:6px;}
+.cal-btn{background:#fff;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:0.8rem;font-weight:600;color:var(--text);transition:all 0.12s;}
+.cal-btn:hover{border-color:#aaa;}
+.cal-today-btn{background:#f5f5f5;border:1px solid var(--border);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:0.78rem;font-weight:600;color:var(--sub);transition:all 0.12s;}
+.cal-today-btn:hover{border-color:#aaa;background:#eee;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);}
+.cal-dow{text-align:center;padding:8px 4px;font-size:0.7rem;font-weight:700;color:var(--muted);}
+.cal-dow:first-child{color:#DE350B;}
+.cal-dow:last-child{color:#0052CC;}
+.cal-cell{min-height:80px;padding:5px 4px 4px;border-top:1px solid #f0f0f0;border-right:1px solid #f0f0f0;cursor:pointer;transition:background 0.12s;position:relative;}
+.cal-cell:nth-child(7n){border-right:none;}
+.cal-cell.other-month{background:#fafafa;}
+.cal-cell.other-month .cal-day{color:#ccc;}
+.cal-cell.today .cal-day-inner{background:#111;color:#fff;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;}
+.cal-cell:not(.other-month):hover{background:#f8f9ff;}
+.cal-day{text-align:right;font-size:0.75rem;font-weight:600;color:#333;margin-bottom:3px;line-height:1;}
+.cal-cell:nth-child(7n+1) .cal-day{color:#DE350B;}
+.cal-cell:nth-child(7n) .cal-day{color:#0052CC;}
+.cal-events{display:flex;flex-direction:column;gap:2px;}
+.cal-ev{font-size:0.62rem;font-weight:600;padding:1px 5px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px;}
+.cal-ev-x{font-size:0.6rem;opacity:0.6;cursor:pointer;flex-shrink:0;margin-left:auto;}
+.cal-ev-x:hover{opacity:1;}
+.cal-more{font-size:0.6rem;color:var(--muted);padding:1px 4px;}
+.cal-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:400;display:flex;align-items:center;justify-content:center;}
+.cal-modal{background:#fff;border-radius:10px;padding:24px;width:320px;box-shadow:0 8px 32px rgba(0,0,0,0.2);}
+.cal-modal-title{font-weight:700;font-size:0.95rem;margin-bottom:4px;}
+.cal-modal-date{font-size:0.75rem;color:var(--muted);margin-bottom:14px;}
+.cal-modal-inp{width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 11px;font-size:0.84rem;outline:none;margin-bottom:10px;font-family:'Noto Sans KR',sans-serif;}
+.cal-modal-inp:focus{border-color:var(--primary);}
+.cal-colors{display:flex;gap:7px;margin-bottom:14px;}
+.cal-color-dot{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:border-color 0.12s;}
+.cal-color-dot.sel{border-color:#111;}
+.cal-modal-btns{display:flex;gap:8px;justify-content:flex-end;}
+.confirm-modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:500;display:flex;align-items:center;justify-content:center;}
+.confirm-modal{background:#fff;border-radius:10px;padding:24px;width:300px;box-shadow:0 8px 32px rgba(0,0,0,0.2);}
+.confirm-modal-title{font-weight:700;font-size:0.95rem;margin-bottom:8px;}
+.confirm-modal-desc{font-size:0.83rem;color:var(--sub);margin-bottom:18px;line-height:1.6;}
+.confirm-modal-btns{display:flex;gap:8px;justify-content:flex-end;}
 .stock-section{background:var(--bg);padding:56px 0;border-bottom:1px solid var(--border);}
 .stock-inner{max-width:1280px;margin:0 auto;padding:0 32px;}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;}
@@ -487,14 +532,25 @@ export default function App() {
   const [market,setMarket]    = useState("sp500");
   const [selStock,setSelStock]= useState(0);
   const [period,setPeriod]    = useState("1w");
-  const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",pinned:false,videoUrl:""});
+  const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
   const [prForm,setPrForm]    = useState({...DEF_PROFILE});
+  // Calendar state
+  const [calEvents,setCalEvents] = useState({});
+  const [calYear,setCalYear]   = useState(()=>new Date().getFullYear());
+  const [calMonth,setCalMonth] = useState(()=>new Date().getMonth());
+  const [calModalDate,setCalModalDate] = useState(null);
+  const [calNewText,setCalNewText]   = useState("");
+  const [calNewColor,setCalNewColor] = useState("#0052CC");
+  // Confirm dialog state
+  const [confirmAction,setConfirmAction] = useState(null); // {type:'edit'|'delete', data}
+  // All posts mode (날짜별 묶음)
+  const [showAllMode,setShowAllMode] = useState(false);
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const navToCat = useCallback((cat, sub="all") => {
-    setCatRaw(cat); setSubRaw(sub); setDetailRaw(null);
+    setCatRaw(cat); setSubRaw(sub); setDetailRaw(null); setShowAllMode(false);
     pushState({ cat, subcat: sub!=="all"?sub:null, postId:null });
     window.scrollTo({ top:0, behavior:"smooth" });
   }, []);
@@ -519,7 +575,9 @@ export default function App() {
   useEffect(()=>{
     const p  = load(K.profile);
     const ps = load(K.posts);
+    const cal = load(K.calendar);
     if(p) setProfile(p);
+    if(cal) setCalEvents(cal);
     const loaded = ps||DEF_POSTS;
     setPosts(loaded); postsRef.current = loaded;
     const init = readState();
@@ -537,19 +595,56 @@ export default function App() {
       : [{id:Date.now(),...form,date:today},...posts];
     setPosts(u); postsRef.current=u; save(K.posts,u);
     setModal(null); setEditing(null);
-    setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",pinned:false,videoUrl:""});
+    setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
   };
   const delPost = (id) => {
     const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u; save(K.posts,u);
     if(detail?.id===id) { setDetailRaw(null); window.history.back(); }
   };
+
+  // ── Calendar helpers ────────────────────────────────────────────────────────
+  const saveCalEvent = () => {
+    if(!calNewText.trim()||!calModalDate) return;
+    const updated = {...calEvents};
+    if(!updated[calModalDate]) updated[calModalDate]=[];
+    updated[calModalDate] = [...updated[calModalDate], {text:calNewText.trim(), color:calNewColor}];
+    setCalEvents(updated); save(K.calendar, updated);
+    setCalNewText(""); setCalModalDate(null);
+  };
+  const delCalEvent = (date, idx) => {
+    const updated = {...calEvents};
+    updated[date] = updated[date].filter((_,i)=>i!==idx);
+    if(!updated[date].length) delete updated[date];
+    setCalEvents(updated); save(K.calendar, updated);
+    setConfirmAction(null);
+  };
+  const prevMonth = () => { if(calMonth===0){setCalYear(y=>y-1);setCalMonth(11);}else setCalMonth(m=>m-1); };
+  const nextMonth = () => { if(calMonth===11){setCalYear(y=>y+1);setCalMonth(0);}else setCalMonth(m=>m+1); };
+  const goToday   = () => { setCalYear(new Date().getFullYear()); setCalMonth(new Date().getMonth()); };
+
+  // ── Confirm-dialog wrappers ─────────────────────────────────────────────────
+  const requestEdit   = (p) => setConfirmAction({type:'edit',   data:p});
+  const requestDelete = (id,title) => setConfirmAction({type:'delete', data:{id,title}});
+  const confirmEdit   = () => { openEdit(confirmAction.data); setConfirmAction(null); };
+  const confirmDelete = () => { delPost(confirmAction.data.id); setConfirmAction(null); };
   const openEdit = p => {
     setEditing(p);
-    setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",pinned:p.pinned||false,videoUrl:p.videoUrl||""});
+    setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",images:p.images||[],pinned:p.pinned||false,videoUrl:p.videoUrl||""});
     setModal('write');
   };
   const saveProfile = () => { setProfile(prForm); save(K.profile,prForm); setModal(null); };
-  const handleImg   = async e => { const f=e.target.files[0]; if(!f)return; setForm({...form,img:await toB64(f)}); };
+  const handleImg = async e => {
+    const files = Array.from(e.target.files);
+    if(!files.length) return;
+    if(form.cat === 'photo') {
+      // 오늘의 사진: 여러 장
+      const newImgs = await Promise.all(files.map(f=>toB64(f)));
+      setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
+    } else {
+      // 다른 카테고리: 대표 이미지 1장
+      setForm(prev=>({...prev, img:await toB64(files[0])}));
+    }
+  };
   const handleAvatar = async e => {
     const f=e.target.files[0]; if(!f)return;
     const b64 = await toB64(f);
@@ -615,14 +710,14 @@ export default function App() {
     {/* ── HEADER ── */}
     <header className="header">
       <div className="header-inner">
-        <span className="logo" onClick={()=>navToCat("all")}>dlwnsleejun</span>
+        <span className="logo" onClick={()=>{navToCat("all");setShowAllMode(false);}}>dlwnsleejun</span>
         <nav className="nav">
           {CATS.map(c=><button key={c.id} className={`nav-link ${activeCat===c.id&&!detail?'active':''}`} onClick={()=>navToCat(c.id)}>{c.label}</button>)}
         </nav>
         <div className="header-actions">
           <span style={{fontSize:'0.78rem',color:'var(--muted)',fontWeight:500,marginRight:4}}>{getTodayKr()}</span>
           <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
-          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
+          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
       </div>
     </header>
@@ -636,12 +731,22 @@ export default function App() {
           <h1 className="detail-title">{detail.title}</h1>
           <div className="detail-meta">
             <span>{fmtDate(detail.date)}</span>
-            <button className="btn-sm" onClick={()=>openEdit(detail)}>수정</button>
-            <button className="btn-del-sm" onClick={()=>delPost(detail.id)}>삭제</button>
+            <button className="btn-sm" onClick={()=>requestEdit(detail)}>수정</button>
+            <button className="btn-del-sm" onClick={()=>requestDelete(detail.id,detail.title)}>삭제</button>
           </div>
           {detail.videoUrl && renderVideo(detail)}
-          {detail.img && <img className="detail-img" src={detail.img} alt=""/>}
-          <div className="detail-body">{detail.body||detail.summary}</div>
+          {detail.cat==='photo' && (detail.images||[]).length>0 ? (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:8,marginBottom:22}}>
+              {(detail.images||[]).map((src,i)=>(
+                <img key={i} src={src} alt="" style={{width:'100%',height:200,objectFit:'cover',borderRadius:6,display:'block'}}/>
+              ))}
+            </div>
+          ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
+          <div className="detail-body">
+            {(detail.body||detail.summary).split(/\n+/).filter(s=>s.trim()).map((para,i)=>(
+              <p key={i} style={{marginBottom:'1.2em'}}>{para}</p>
+            ))}
+          </div>
         </div>
       </div>
     )}
@@ -655,8 +760,8 @@ export default function App() {
             <div className="hero-content">
               <h1>이준 기록집</h1>
               <div className="hero-actions" style={{marginTop:24}}>
-                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",pinned:false,videoUrl:""});setModal('write');}}>+ 새 글 작성</button>
-                <button className="btn btn-lg btn-outline-white" onClick={()=>navToCat("all")}>전체 글 보기</button>
+                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 새 글 작성</button>
+                <button className="btn btn-lg btn-outline-white" onClick={()=>{navToCat("all");setShowAllMode(true);}}>전체 글 보기</button>
               </div>
             </div>
             <div className="hero-card">
@@ -728,6 +833,72 @@ export default function App() {
             ))}
           </div>
         </div>
+      )}
+
+
+      {/* ── CALENDAR ── */}
+      {isAll && (
+        <section className="calendar-section">
+          <div className="calendar-inner" style={{paddingBottom:32}}>
+            <div className="section-head" style={{marginBottom:16}}>
+              <div><div className="section-title">📅 일정 캘린더</div><div className="section-sub">날짜를 클릭해 일정을 추가하세요</div></div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <button className="cal-today-btn" onClick={goToday}>TODAY</button>
+                <button className="cal-btn" onClick={prevMonth}>‹</button>
+                <span style={{fontFamily:"'Montserrat',sans-serif",fontWeight:700,fontSize:'1rem',minWidth:80,textAlign:'center'}}>{calYear}년 {calMonth+1}월</span>
+                <button className="cal-btn" onClick={nextMonth}>›</button>
+              </div>
+            </div>
+            {/* Day of week header */}
+            <div className="cal-grid">
+              {['일','월','화','수','목','금','토'].map(d=><div key={d} className="cal-dow">{d}</div>)}
+            </div>
+            {/* Calendar cells */}
+            {(()=>{
+              const firstDay = new Date(calYear, calMonth, 1).getDay();
+              const daysInMonth = new Date(calYear, calMonth+1, 0).getDate();
+              const prevDays = new Date(calYear, calMonth, 0).getDate();
+              const today = new Date(); const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+              const cells = [];
+              // prev month days
+              for(let i=0;i<firstDay;i++) cells.push({day:prevDays-firstDay+1+i, cur:false, key:null});
+              // current month
+              for(let d=1;d<=daysInMonth;d++){
+                const key=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                cells.push({day:d,cur:true,key});
+              }
+              // next month
+              let n=1; while(cells.length%7!==0) cells.push({day:n++,cur:false,key:null});
+              return (
+                <div className="cal-grid">
+                  {cells.map((c,i)=>{
+                    const evs = c.key?(calEvents[c.key]||[]):[];
+                    const isToday = c.key===todayStr;
+                    return (
+                      <div key={i}
+                        className={`cal-cell${!c.cur?' other-month':''}${isToday?' today':''}`}
+                        onClick={()=>{ if(c.cur){ setCalModalDate(c.key); setCalNewText(""); setCalNewColor("#0052CC"); } }}
+                      >
+                        <div className="cal-day">
+                          {isToday ? <span className="cal-day-inner">{c.day}</span> : c.day}
+                        </div>
+                        <div className="cal-events">
+                          {evs.slice(0,3).map((ev,ei)=>(
+                            <div key={ei} className="cal-ev" style={{background:ev.color+'22',color:ev.color,borderLeft:`3px solid ${ev.color}`}}>
+                              <span style={{overflow:'hidden',textOverflow:'ellipsis',flex:1}}>{ev.text}</span>
+                              <span className="cal-ev-x" onClick={e=>{e.stopPropagation();setConfirmAction({type:'calDel',data:{date:c.key,idx:ei}});}}>×</span>
+                            </div>
+                          ))}
+                          {evs.length>3&&<div className="cal-more">+{evs.length-3}개</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </section>
       )}
 
       {/* ── STOCK ── */}
@@ -822,6 +993,52 @@ export default function App() {
         <div className={isAll?"content-inner fade":"content-full fade"}>
           {isAll ? (
             <>
+              {/* 전체 글 보기 모드 - 날짜별 묶음 */}
+              {showAllMode ? (
+                <div style={{gridColumn:'1/-1'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:24}}>
+                    <h2 style={{fontFamily:"'Montserrat',sans-serif",fontSize:'1.2rem',fontWeight:700}}>전체 글 보기</h2>
+                    <span style={{fontSize:'0.78rem',color:'var(--muted)'}}>총 {posts.length}개 · 날짜별 최신순</span>
+                    <button className="btn btn-outline" style={{padding:'5px 12px',fontSize:'0.75rem',marginLeft:'auto'}} onClick={()=>setShowAllMode(false)}>← 홈으로</button>
+                  </div>
+                  {(()=>{
+                    const grouped={};
+                    [...posts].sort((a,b)=>b.date.localeCompare(a.date)).forEach(p=>{
+                      if(!grouped[p.date]) grouped[p.date]=[];
+                      grouped[p.date].push(p);
+                    });
+                    const dates=Object.keys(grouped).sort((a,b)=>b.localeCompare(a));
+                    if(!dates.length) return <div className="empty"><div className="empty-icon">📝</div><div className="empty-title">아직 작성된 글이 없어요</div></div>;
+                    return dates.map(date=>(
+                      <div key={date} style={{marginBottom:32}}>
+                        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14}}>
+                          <span style={{fontFamily:"'Montserrat',sans-serif",fontSize:'0.88rem',fontWeight:700,color:'var(--sub)'}}>{fmtDate(date)}</span>
+                          <div style={{flex:1,height:1,background:'var(--border)'}}/>
+                          <span style={{fontSize:'0.7rem',color:'var(--muted)'}}>{grouped[date].length}개</span>
+                        </div>
+                        <div className="posts-grid">
+                          {grouped[date].map(p=>(
+                            <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
+                              <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
+                              <div className="pc-body">
+                                <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
+                                <div className="pc-title">{p.title}</div>
+                                <div className="pc-sum">{p.summary}</div>
+                                <div className="pc-meta"><span>{fmtDate(p.date)}</span>
+                                  <div className="pc-actions" onClick={e=>e.stopPropagation()}>
+                                    <button className="btn-sm" onClick={()=>requestEdit(p)}>수정</button>
+                                    <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                </div>
+              ) : (
               <div>
                 {pinned&&(
                   <div className="featured" onClick={()=>navToPost(pinned)}>
@@ -831,13 +1048,15 @@ export default function App() {
                       <div className="f-sum">{pinned.summary}</div>
                       <div className="f-meta"><span>{fmtDate(pinned.date)}</span>
                         <div className="f-actions" onClick={e=>e.stopPropagation()} style={{display:'flex',gap:5}}>
-                          <button className="btn-sm" onClick={()=>openEdit(pinned)}>수정</button>
-                          <button className="btn-del-sm" onClick={()=>delPost(pinned.id)}>삭제</button>
+                          <button className="btn-sm" onClick={()=>requestEdit(pinned)}>수정</button>
+                          <button className="btn-del-sm" onClick={()=>requestDelete(pinned.id,pinned.title)}>삭제</button>
                         </div>
                       </div>
                     </div>
                     <div className="featured-img">
-                      {pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}
+                      {pinned.cat==='photo'&&(pinned.images||[]).length>0?(
+                        <img src={pinned.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      ):pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}
                       {pinned.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                   </div>
@@ -856,8 +1075,8 @@ export default function App() {
                           <div className="pc-sum">{p.summary}</div>
                           <div className="pc-meta"><span>{fmtDate(p.date)}</span>
                             <div className="pc-actions" onClick={e=>e.stopPropagation()}>
-                              <button className="btn-sm" onClick={()=>openEdit(p)}>수정</button>
-                              <button className="btn-del-sm" onClick={()=>delPost(p.id)}>삭제</button>
+                              <button className="btn-sm" onClick={()=>requestEdit(p)}>수정</button>
+                              <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
                             </div>
                           </div>
                         </div>
@@ -867,6 +1086,7 @@ export default function App() {
                 )}
                 {!pinned&&rest.length===0&&<div className="empty">📝<br/><br/>첫 번째 글을 작성해보세요!</div>}
               </div>
+              )}
               <aside className="sidebar">
                 <div className="side-box">
                   <div className="profile-box">
@@ -912,8 +1132,8 @@ export default function App() {
                       <div className="pc-sum">{p.summary}</div>
                       <div className="pc-meta"><span>{fmtDate(p.date)}</span>
                         <div className="pc-actions" onClick={e=>e.stopPropagation()}>
-                          <button className="btn-sm" onClick={()=>openEdit(p)}>수정</button>
-                          <button className="btn-del-sm" onClick={()=>delPost(p.id)}>삭제</button>
+                          <button className="btn-sm" onClick={()=>requestEdit(p)}>수정</button>
+                          <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
                         </div>
                       </div>
                     </div>
@@ -927,13 +1147,69 @@ export default function App() {
                   {activeSub!=="all" ? `${subcats.find(s=>s.id===activeSub)?.label} 글이 아직 없어요` : `아직 ${catInfo.label}에 글이 없어요`}
                 </div>
                 <div className="empty-desc">첫 번째 글을 작성해보세요!</div>
-                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",pinned:false,videoUrl:""});setModal('write');}}>+ 첫 글 작성하기</button>
+                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 첫 글 작성하기</button>
               </div>
             )
           )}
         </div>
       </section>
     </>)}
+
+
+    {/* ── CALENDAR ADD EVENT MODAL ── */}
+    {calModalDate&&(
+      <div className="cal-modal-bg" onClick={()=>setCalModalDate(null)}>
+        <div className="cal-modal" onClick={e=>e.stopPropagation()}>
+          <div className="cal-modal-title">📅 일정 추가</div>
+          <div className="cal-modal-date">{calModalDate}</div>
+          <input className="cal-modal-inp" placeholder="일정 내용을 입력하세요"
+            value={calNewText} onChange={e=>setCalNewText(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&saveCalEvent()} autoFocus/>
+          <div className="cal-colors">
+            {["#0052CC","#6554C0","#00875A","#FF8B00","#DE350B","#008DA6","#111111"].map(c=>(
+              <div key={c} className={`cal-color-dot${calNewColor===c?' sel':''}`}
+                style={{background:c}} onClick={()=>setCalNewColor(c)}/>
+            ))}
+          </div>
+          <div className="cal-modal-btns">
+            <button className="btn btn-outline" style={{padding:'7px 14px',fontSize:'0.78rem'}} onClick={()=>setCalModalDate(null)}>취소</button>
+            <button className="btn btn-primary" style={{padding:'7px 14px',fontSize:'0.78rem'}} onClick={saveCalEvent} disabled={!calNewText.trim()}>추가</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── CONFIRM DIALOG ── */}
+    {confirmAction&&(
+      <div className="confirm-modal-bg" onClick={()=>setConfirmAction(null)}>
+        <div className="confirm-modal" onClick={e=>e.stopPropagation()}>
+          {confirmAction.type==='edit'&&<>
+            <div className="confirm-modal-title">✏️ 글 수정</div>
+            <div className="confirm-modal-desc">이 글을 수정하시겠습니까?<br/><b>"{confirmAction.data.title}"</b></div>
+            <div className="confirm-modal-btns">
+              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
+              <button className="btn btn-primary" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={confirmEdit}>수정하기</button>
+            </div>
+          </>}
+          {confirmAction.type==='delete'&&<>
+            <div className="confirm-modal-title">🗑 글 삭제</div>
+            <div className="confirm-modal-desc">이 글을 삭제하시겠습니까?<br/>삭제된 글은 복구할 수 없습니다.<br/><b>"{confirmAction.data.title}"</b></div>
+            <div className="confirm-modal-btns">
+              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
+              <button className="btn" style={{padding:'8px 14px',fontSize:'0.8rem',background:'var(--red)',color:'#fff'}} onClick={confirmDelete}>삭제하기</button>
+            </div>
+          </>}
+          {confirmAction.type==='calDel'&&<>
+            <div className="confirm-modal-title">🗓 일정 삭제</div>
+            <div className="confirm-modal-desc">이 일정을 삭제하시겠습니까?</div>
+            <div className="confirm-modal-btns">
+              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
+              <button className="btn" style={{padding:'8px 14px',fontSize:'0.8rem',background:'var(--red)',color:'#fff'}} onClick={()=>delCalEvent(confirmAction.data.date,confirmAction.data.idx)}>삭제하기</button>
+            </div>
+          </>}
+        </div>
+      </div>
+    )}
 
     <footer><b>dlwnsleejun.com</b> — 이준 기록집</footer>
 
@@ -968,11 +1244,22 @@ export default function App() {
             <div className="fg">
               <label>대표 이미지</label>
               <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>파일 선택</button>
+                <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>{form.cat==="photo"?"사진 여러 장 선택":"파일 선택"}</button>
                 {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
               </div>
-              {form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
-              <input ref={imgRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImg}/>
+              {form.cat==='photo'&&(form.images||[]).length>0&&(
+                <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
+                  {(form.images||[]).map((src,i)=>(
+                    <div key={i} style={{position:'relative'}}>
+                      <img src={src} alt="" style={{width:'100%',height:70,objectFit:'cover',borderRadius:4,display:'block'}}/>
+                      <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
+                        style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:18,height:18,fontSize:'0.6rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {form.cat!=='photo'&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
+              <input ref={imgRef} type="file" accept="image/*" multiple={form.cat==='photo'} style={{display:'none'}} onChange={handleImg}/>
             </div>
             <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
               <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
