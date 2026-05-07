@@ -642,7 +642,8 @@ export default function App() {
       setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
     } else {
       // 다른 카테고리: 대표 이미지 1장
-      setForm(prev=>({...prev, img:await toB64(files[0])}));
+      const b64 = await toB64(files[0]);
+      setForm(prev=>({...prev, img:b64}));
     }
   };
   const handleAvatar = async e => {
