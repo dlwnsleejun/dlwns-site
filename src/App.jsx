@@ -1034,47 +1034,63 @@ export default function App() {
             ))}
           </div>
 
-          {/* ── 댓글 섹션 ── */}
+          {/* comment section */}
           <div style={{marginTop:48,borderTop:'1px solid var(--border)',paddingTop:32}}>
-            <h3 style={{fontSize:'1rem',fontWeight:700,marginBottom:20}}>💬 댓글 {(comments[detail.id]||[]).length}개</h3>
-            {/* 댓글 목록 */}
+            <h3 style={{fontSize:'1rem',fontWeight:700,marginBottom:20}}>
+              {'💬 댓글 ' + (comments[detail.id]||[]).length + '개'}
+            </h3>
             {(comments[detail.id]||[]).map(c=>(
               <div key={c.id} style={{padding:'14px 0',borderBottom:'1px solid var(--border)',display:'flex',gap:12,alignItems:'flex-start'}}>
                 <div style={{width:36,height:36,borderRadius:'50%',background:'var(--bg)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.9rem',fontWeight:700,flexShrink:0,color:'var(--primary)'}}>
-                  {c.nick[0]?.toUpperCase()}
+                  {(c.nick[0]||'?').toUpperCase()}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
                     <span style={{fontWeight:700,fontSize:'0.82rem'}}>{c.nick}</span>
                     <span style={{fontSize:'0.7rem',color:'var(--muted)'}}>{c.date}</span>
                   </div>
-                  <div style={{fontSize:'0.88rem',lineHeight:1.7,color:'#333',whiteSpace:'pre-wrap'}}>{c.body}</div>
+                  <div style={{fontSize:'0.88rem',lineHeight:1.7,color:'#333'}}>{c.body}</div>
                 </div>
-                <button onClick={()=>delComment(detail.id,c.id)}
-                  style={{background:'none',border:'none',color:'#ccc',cursor:'pointer',fontSize:'0.8rem',flexShrink:0,padding:'2px 4px'}}
-                  title="삭제">×</button>
+                <button onClick={()=>delComment(detail.id,c.id)} style={{background:'none',border:'none',color:'#ccc',cursor:'pointer',fontSize:'0.8rem',padding:'2px 4px'}}>
+                  {'×'}
+                </button>
               </div>
             ))}
-            {(comments[detail.id]||[]).length===0&&(
-              <div style={{color:'var(--muted)',fontSize:'0.85rem',padding:'16px 0',textAlign:'center'}}>아직 댓글이 없어요. 첫 번째 댓글을 남겨보세요!</div>
+            {(comments[detail.id]||[]).length === 0 && (
+              <div style={{color:'var(--muted)',fontSize:'0.85rem',padding:'16px 0',textAlign:'center'}}>
+                {'아직 댓글이 없어요. 첫 번째 댓글을 남겨보세요!'}
+              </div>
             )}
-            {/* 댓글 작성 폼 */}
             <div style={{marginTop:20,background:'var(--bg)',borderRadius:8,padding:20,border:'1px solid var(--border)'}}>
               <div style={{display:'grid',gridTemplateColumns:'160px 1fr',gap:10,marginBottom:10}}>
                 <input
-                  type="text" value={commentNick} onChange={e=>setCommentNick(e.target.value)}
+                  type="text"
+                  value={commentNick}
+                  onChange={e=>setCommentNick(e.target.value)}
                   placeholder="닉네임"
-                  style={{border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:'Noto Sans KR, sans-serif',outline:'none'}}/>
-                <div style={{fontSize:'0.72rem',color:'var(--muted)',display:'flex',alignItems:'center'}}>누구든지 댓글을 남길 수 있어요</div>
+                  style={{border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',outline:'none'}}
+                />
+                <div style={{fontSize:'0.72rem',color:'var(--muted)',display:'flex',alignItems:'center'}}>
+                  {'누구든지 댓글을 남길 수 있어요'}
+                </div>
               </div>
               <textarea
-                rows={3} value={commentBody} onChange={e=>setCommentBody(e.target.value)}
+                rows={3}
+                value={commentBody}
+                onChange={e=>setCommentBody(e.target.value)}
                 placeholder="댓글을 작성하세요..."
-                style={{width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',fontFamily:'Noto Sans KR, sans-serif',outline:'none',resize:'vertical',marginBottom:10}}/>
+                style={{width:'100%',border:'1px solid var(--border)',borderRadius:6,padding:'8px 12px',fontSize:'0.84rem',outline:'none',resize:'vertical',marginBottom:10}}
+              />
               <div style={{display:'flex',justifyContent:'flex-end'}}>
-                <button className="btn btn-primary" onClick={()=>saveComment(detail.id)} disabled={!commentNick.trim()||!commentBody.trim()} style={{opacity:commentNick.trim()&&commentBody.trim()?1:0.4}}>댓글 등록</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={()=>saveComment(detail.id)}
+                  disabled={!(commentNick.trim() && commentBody.trim())}
+                  style={{opacity:(commentNick.trim() && commentBody.trim()) ? 1 : 0.4}}
+                >
+                  {'댓글 등록'}
+                </button>
               </div>
-            </div>
             </div>
           </div>
         </div>
