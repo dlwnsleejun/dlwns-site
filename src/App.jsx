@@ -1,25 +1,59 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ─── Storage (localStorage) ───────────────────────────────────────────────────
-const K = { posts:"dlwns-posts5", profile:"dlwns-profile4", stocks:"dlwns-stocks1", calendar:"dlwns-calendar1" };
+// ─── Supabase Config ──────────────────────────────────────────────────────────
+// ⚠️  아래 두 줄에 본인의 Supabase 정보를 입력하세요
+const SUPA_URL = "https://YOUR_PROJECT_ID.supabase.co";
+const SUPA_KEY = "YOUR_ANON_KEY";
+const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
-function load(key) {
+// ─── Supabase REST helpers ────────────────────────────────────────────────────
+const H = () => ({
+  "Content-Type": "application/json",
+  "apikey": SUPA_KEY,
+  "Authorization": `Bearer ${SUPA_KEY}`,
+  "Prefer": "return=representation",
+});
+
+async function dbGet(table, filter = "") {
   try {
-    const v = localStorage.getItem(key);
-    return v ? JSON.parse(v) : null;
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${filter}&limit=1`, { headers: H() });
+    if(!r.ok) return null;
+    const arr = await r.json();
+    return arr[0] || null;
   } catch { return null; }
 }
-function save(key, val) {
+async function dbGetAll(table, filter = "") {
   try {
-    localStorage.setItem(key, JSON.stringify(val));
-  } catch(e) {
-    // 용량 초과(이미지 등) 시 이미지 제외하고 재시도
-    if(e.name === 'QuotaExceededError' && key === K.profile) {
-      try { localStorage.setItem(key, JSON.stringify({...val, avatar:""})); } catch {}
-    }
-    console.warn('저장 용량 초과:', e);
-  }
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${filter}&order=created_at.asc&limit=1000`, { headers: H() });
+    if(!r.ok) return null;
+    return r.json();
+  } catch { return null; }
 }
+async function dbUpsert(table, data) {
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}`, {
+      method: "POST",
+      headers: { ...H(), "Prefer": "resolution=merge-duplicates,return=representation" },
+      body: JSON.stringify(data)
+    });
+    if(!r.ok) { console.error("upsert error:", await r.text()); return null; }
+    return r.json();
+  } catch(e) { console.error(e); return null; }
+}
+async function dbDelete(table, filter) {
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/${table}?${filter}`, {
+      method: "DELETE", headers: H()
+    });
+    return r.ok;
+  } catch { return false; }
+}
+
+// ─── Migration: 이전 localStorage 데이터 읽기용 ───────────────────────────────
+function loadLocal(key) {
+  try { const v=localStorage.getItem(key); return v?JSON.parse(v):null; } catch { return null; }
+}
+const OLD_LS_KEYS = ["dlwns-posts6","dlwns-posts5","dlwns-posts4","dlwns-posts3","dlwns-posts2","dlwns-posts1","dlwns-posts"];
 const toB64 = f => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); });
 
 // ─── Browser History ──────────────────────────────────────────────────────────
@@ -43,8 +77,8 @@ const CATS = [
   { id:"inspiration", label:"인스퍼레이션",color:"#6554C0", desc:"영감을 주는 것들을 기록합니다" },
   { id:"career",      label:"커리어",      color:"#00875A", desc:"직무와 성장에 관한 이야기" },
   { id:"study",       label:"스터디",      color:"#FF8B00", desc:"배움을 정리하고 공유합니다" },
-  { id:"daily",       label:"하루기록",    color:"#DE350B", desc:"일상의 소소한 순간들" },
-  { id:"photo",       label:"오늘의 사진", color:"#008DA6", desc:"렌즈로 담은 순간들" },
+  { id:"daily",       label:"하루기록",    color:"#DE350B", desc:"일기와 오늘의 사진을 기록합니다" },
+  { id:"music",       label:"뮤직",        color:"#E91E8C", desc:"좋아하는 음악을 플레이리스트로 담습니다" },
 ];
 const CAT = Object.fromEntries(CATS.map(c=>[c.id,c]));
 
@@ -53,8 +87,8 @@ const SUBCATS = {
   inspiration: [{ id:"all",label:"전체" },{ id:"video",label:"유튜브/쇼츠" },{ id:"reels",label:"인스타 릴스" },{ id:"book",label:"도서" },{ id:"design",label:"디자인" }],
   career:      [{ id:"all",label:"전체" },{ id:"job",label:"취업/이직" },{ id:"project",label:"프로젝트" },{ id:"cert",label:"자격증" },{ id:"etc",label:"기타" }],
   study:       [{ id:"all",label:"전체" },{ id:"english",label:"영어" },{ id:"japanese",label:"일본어" },{ id:"adsp",label:"ADSP" },{ id:"logistics",label:"물류관리사" },{ id:"etc",label:"기타" }],
-  daily:       [{ id:"all",label:"전체" },{ id:"morning",label:"아침" },{ id:"food",label:"먹거리" },{ id:"weekend",label:"주말" },{ id:"etc",label:"기타" }],
-  photo:       [{ id:"all",label:"전체" },{ id:"daily",label:"일상" },{ id:"travel",label:"여행" },{ id:"food",label:"음식" },{ id:"etc",label:"기타" }],
+  daily:       [{ id:"all",label:"전체" },{ id:"diary",label:"일기" },{ id:"photo",label:"오늘의 사진" }],
+  music:       [{ id:"all",label:"전체" }],
 };
 
 // YouTube / Instagram URL 파싱
@@ -278,6 +312,37 @@ button{font-family:'Noto Sans KR',sans-serif;}
 .confirm-modal-title{font-weight:700;font-size:0.95rem;margin-bottom:8px;}
 .confirm-modal-desc{font-size:0.83rem;color:var(--sub);margin-bottom:18px;line-height:1.6;}
 .confirm-modal-btns{display:flex;gap:8px;justify-content:flex-end;}
+
+/* ── MUSIC PLAYLIST ── */
+.music-playlist{display:flex;flex-direction:column;gap:0;}
+.music-item{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.12s;border-radius:0;position:relative;}
+.music-item:first-child{border-radius:8px 8px 0 0;}
+.music-item:last-child{border-radius:0 0 8px 8px;border-bottom:none;}
+.music-item:hover{background:#f8f9ff;}
+.music-item.playing{background:#EAF2FF;}
+.music-num{width:24px;text-align:center;font-size:0.75rem;color:var(--muted);font-family:'Montserrat',sans-serif;font-weight:600;flex-shrink:0;}
+.music-thumb{width:56px;height:56px;border-radius:6px;object-fit:cover;flex-shrink:0;background:#eee;}
+.music-thumb-placeholder{width:56px;height:56px;border-radius:6px;background:linear-gradient(135deg,#E91E8C22,#E91E8C44);display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;}
+.music-info{flex:1;min-width:0;}
+.music-title{font-size:0.88rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.music-sub{font-size:0.72rem;color:var(--muted);margin-top:2px;}
+.music-actions{display:flex;gap:5px;opacity:0;transition:opacity 0.12s;}
+.music-item:hover .music-actions{opacity:1;}
+.music-play-btn{width:36px;height:36px;border-radius:50%;background:#E91E8C;border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.8rem;flex-shrink:0;transition:transform 0.12s;}
+.music-play-btn:hover{transform:scale(1.1);}
+.music-play-btn.active{background:#0052CC;}
+.music-section-header{display:flex;align-items:center;gap:12px;margin-bottom:0;padding:16px;background:#fafafa;border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;}
+.music-section-header h3{font-size:0.9rem;font-weight:700;margin:0;}
+.music-count{font-size:0.72rem;color:var(--muted);background:var(--border);padding:2px 8px;border-radius:10px;}
+.music-player-bar{position:fixed;bottom:0;left:0;right:0;background:#111;color:#fff;padding:12px 24px;display:flex;align-items:center;gap:16px;z-index:300;box-shadow:0 -4px 20px rgba(0,0,0,0.3);}
+.music-player-info{flex:1;min-width:0;}
+.music-player-title{font-size:0.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.music-player-sub{font-size:0.68rem;color:#aaa;margin-top:2px;}
+.music-player-btns{display:flex;gap:10px;align-items:center;}
+.music-player-btn{background:transparent;border:1px solid rgba(255,255,255,0.2);color:#fff;border-radius:50%;width:34px;height:34px;cursor:pointer;font-size:0.75rem;display:flex;align-items:center;justify-content:center;transition:all 0.12s;}
+.music-player-btn:hover{background:rgba(255,255,255,0.1);}
+.music-player-btn.main{background:#E91E8C;border-color:#E91E8C;width:42px;height:42px;font-size:0.9rem;}
+.music-close-btn{background:transparent;border:none;color:#aaa;cursor:pointer;font-size:1.1rem;padding:4px;}
 .stock-section{background:var(--bg);padding:56px 0;border-bottom:1px solid var(--border);}
 .stock-inner{max-width:1280px;margin:0 auto;padding:0 32px;}
 .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;}
@@ -545,6 +610,9 @@ export default function App() {
   const [confirmAction,setConfirmAction] = useState(null); // {type:'edit'|'delete', data}
   // All posts mode (날짜별 묶음)
   const [showAllMode,setShowAllMode] = useState(false);
+  // Music player state
+  const [nowPlaying,setNowPlaying] = useState(null); // {post, videoId}
+  const [playerOpen,setPlayerOpen] = useState(false);
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
 
@@ -573,13 +641,65 @@ export default function App() {
   }, []);
 
   useEffect(()=>{
-    const p  = load(K.profile);
-    const ps = load(K.posts);
-    const cal = load(K.calendar);
-    if(p) setProfile(p);
-    if(cal) setCalEvents(cal);
-    const loaded = ps||DEF_POSTS;
-    setPosts(loaded); postsRef.current = loaded;
+    // ── Supabase에서 데이터 로드 ──────────────────────────────
+    setLoading(true);
+    (async () => {
+      try {
+        // 1. 글 로드
+        const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
+        let loaded;
+        if(rows && rows.length > 0) {
+          // Supabase row → post 객체 변환
+          loaded = rows.map(r => ({ ...r.data, id: r.post_id }));
+        } else {
+          // Supabase가 비어있으면 localStorage 마이그레이션 시도
+          let lsPosts = null;
+          for(const k of OLD_LS_KEYS) {
+            const old = loadLocal(k);
+            if(old && old.length > 0) { lsPosts = old; break; }
+          }
+          if(lsPosts && lsPosts.length > 0) {
+            // localStorage 데이터를 Supabase로 마이그레이션
+            for(const p of lsPosts) {
+              await dbUpsert("dlwns_posts", { post_id: p.id, owner: OWNER_ID, data: p });
+            }
+            loaded = lsPosts;
+          } else {
+            loaded = DEF_POSTS;
+            // 기본 포스트 저장
+            for(const p of DEF_POSTS) {
+              await dbUpsert("dlwns_posts", { post_id: p.id, owner: OWNER_ID, data: p });
+            }
+          }
+        }
+        setPosts(loaded); postsRef.current = loaded;
+
+        // 2. 프로필 로드
+        const profRow = await dbGet("dlwns_profile", `owner=eq.${OWNER_ID}`);
+        if(profRow) setProfile(profRow.data);
+        else {
+          const lsProf = loadLocal("dlwns-profile4") || loadLocal("dlwns-profile3");
+          if(lsProf) { setProfile(lsProf); await dbUpsert("dlwns_profile", { owner: OWNER_ID, data: lsProf }); }
+        }
+
+        // 3. 캘린더 로드
+        const calRow = await dbGet("dlwns_calendar", `owner=eq.${OWNER_ID}`);
+        if(calRow) setCalEvents(calRow.data);
+        else {
+          const lsCal = loadLocal("dlwns-calendar1");
+          if(lsCal) { setCalEvents(lsCal); await dbUpsert("dlwns_calendar", { owner: OWNER_ID, data: lsCal }); }
+        }
+      } catch(e) {
+        console.error("Supabase 로드 실패:", e);
+        // fallback: localStorage
+        for(const k of OLD_LS_KEYS) {
+          const old = loadLocal(k);
+          if(old && old.length > 0) { setPosts(old); postsRef.current = old; break; }
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
     const init = readState();
     setCatRaw(init.cat); setSubRaw(init.subcat||"all");
     if(init.postId) { const f=loaded.find(p=>p.id===init.postId); if(f) setDetailRaw(f); }
@@ -588,39 +708,83 @@ export default function App() {
   }, []);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
-  const savePost = () => {
+  const savePost = async () => {
     const today=new Date().toISOString().slice(0,10);
+    const newPost = editing
+      ? {...posts.find(p=>p.id===editing.id), ...form}
+      : {id:Date.now(),...form,date:today};
     const u = editing
-      ? posts.map(p=>p.id===editing.id?{...p,...form}:p)
-      : [{id:Date.now(),...form,date:today},...posts];
-    setPosts(u); postsRef.current=u; save(K.posts,u);
+      ? posts.map(p=>p.id===editing.id?newPost:p)
+      : [newPost,...posts];
+    setPosts(u); postsRef.current=u;
+    // Supabase 저장
+    await dbUpsert("dlwns_posts", { post_id: newPost.id, owner: OWNER_ID, data: newPost });
     setModal(null); setEditing(null);
     setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
   };
-  const delPost = (id) => {
-    const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u; save(K.posts,u);
+  const delPost = async (id) => {
+    const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u;
+    // Supabase 삭제
+    await dbDelete("dlwns_posts", `post_id=eq.${id}&owner=eq.${OWNER_ID}`);
     if(detail?.id===id) { setDetailRaw(null); window.history.back(); }
   };
 
   // ── Calendar helpers ────────────────────────────────────────────────────────
-  const saveCalEvent = () => {
+  const saveCalEvent = async () => {
     if(!calNewText.trim()||!calModalDate) return;
     const updated = {...calEvents};
     if(!updated[calModalDate]) updated[calModalDate]=[];
     updated[calModalDate] = [...updated[calModalDate], {text:calNewText.trim(), color:calNewColor}];
-    setCalEvents(updated); save(K.calendar, updated);
+    setCalEvents(updated);
+    await dbUpsert("dlwns_calendar", { owner: OWNER_ID, data: updated });
     setCalNewText(""); setCalModalDate(null);
   };
-  const delCalEvent = (date, idx) => {
+  const delCalEvent = async (date, idx) => {
     const updated = {...calEvents};
     updated[date] = updated[date].filter((_,i)=>i!==idx);
     if(!updated[date].length) delete updated[date];
-    setCalEvents(updated); save(K.calendar, updated);
+    setCalEvents(updated);
+    await dbUpsert("dlwns_calendar", { owner: OWNER_ID, data: updated });
     setConfirmAction(null);
   };
   const prevMonth = () => { if(calMonth===0){setCalYear(y=>y-1);setCalMonth(11);}else setCalMonth(m=>m-1); };
   const nextMonth = () => { if(calMonth===11){setCalYear(y=>y+1);setCalMonth(0);}else setCalMonth(m=>m+1); };
   const goToday   = () => { setCalYear(new Date().getFullYear()); setCalMonth(new Date().getMonth()); };
+
+  // ── Data Backup (export/import) ──────────────────────────────────────────────
+  const exportData = () => {
+    const data = { posts, profile, calEvents, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `dlwns-backup-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+  };
+  const importData = (e) => { // outer
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if(data.posts && Array.isArray(data.posts)){
+          setPosts(data.posts); postsRef.current=data.posts;
+          for(const p of data.posts) {
+            await dbUpsert("dlwns_posts", { post_id: p.id, owner: OWNER_ID, data: p });
+          }
+        }
+        if(data.profile){
+          setProfile(data.profile);
+          await dbUpsert("dlwns_profile", { owner: OWNER_ID, data: data.profile });
+        }
+        if(data.calEvents){
+          setCalEvents(data.calEvents);
+          await dbUpsert("dlwns_calendar", { owner: OWNER_ID, data: data.calEvents });
+        }
+        alert('데이터가 복원되었습니다!');
+      } catch{ alert('파일 형식이 올바르지 않습니다.'); }
+    };
+    reader.readAsText(file);
+  };
 
   // ── Confirm-dialog wrappers ─────────────────────────────────────────────────
   const requestEdit   = (p) => setConfirmAction({type:'edit',   data:p});
@@ -632,11 +796,15 @@ export default function App() {
     setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",images:p.images||[],pinned:p.pinned||false,videoUrl:p.videoUrl||""});
     setModal('write');
   };
-  const saveProfile = () => { setProfile(prForm); save(K.profile,prForm); setModal(null); };
+  const saveProfile = async () => {
+    setProfile(prForm);
+    await dbUpsert("dlwns_profile", { owner: OWNER_ID, data: prForm });
+    setModal(null);
+  };
   const handleImg = async e => {
     const files = Array.from(e.target.files);
     if(!files.length) return;
-    if(form.cat === 'photo') {
+    if(form.subcat === 'photo') {
       // 오늘의 사진: 여러 장
       const newImgs = await Promise.all(files.map(f=>toB64(f)));
       setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
@@ -650,11 +818,12 @@ export default function App() {
     const f=e.target.files[0]; if(!f)return;
     const b64 = await toB64(f);
     const u = {...profile, avatar:b64};
-    setProfile(u); save(K.profile, u);
+    setProfile(u);
+    await dbUpsert("dlwns_profile", { owner: OWNER_ID, data: u });
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',photo:'📷'};
+  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',music:'🎵'};
   const isAll = activeCat==="all";
   const catInfo = CAT[activeCat];
   const subcats = !isAll ? SUBCATS[activeCat]||[] : [];
@@ -717,6 +886,13 @@ export default function App() {
         </nav>
         <div className="header-actions">
           <span style={{fontSize:'0.78rem',color:'var(--muted)',fontWeight:500,marginRight:4}}>{getTodayKr()}</span>
+          <input type="file" accept=".json" style={{display:'none'}} id="import-file" onChange={importData}/>
+          <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px'}} title="데이터 백업/복구"
+            onClick={()=>{
+              const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소)\n\n확인: 현재 데이터를 JSON 파일로 저장\n취소: JSON 파일에서 데이터 복원");
+              if(choice) exportData();
+              else document.getElementById('import-file').click();
+            }}>💾 백업</button>
           <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
           <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
@@ -736,7 +912,7 @@ export default function App() {
             <button className="btn-del-sm" onClick={()=>requestDelete(detail.id,detail.title)}>삭제</button>
           </div>
           {detail.videoUrl && renderVideo(detail)}
-          {detail.cat==='photo' && (detail.images||[]).length>0 ? (
+          {detail.subcat==='photo' && (detail.images||[]).length>0 ? (
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:8,marginBottom:22}}>
               {(detail.images||[]).map((src,i)=>(
                 <img key={i} src={src} alt="" style={{width:'100%',height:200,objectFit:'cover',borderRadius:6,display:'block'}}/>
@@ -744,8 +920,8 @@ export default function App() {
             </div>
           ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
           <div className="detail-body">
-            {(detail.body||detail.summary).split(/\n+/).filter(s=>s.trim()).map((para,i)=>(
-              <p key={i} style={{marginBottom:'1.2em'}}>{para}</p>
+            {(detail.body||detail.summary).split('\n').map((line,i)=>(
+              line.trim()==='' ? <br key={i}/> : <p key={i} style={{margin:0,minHeight:'1.4em'}}>{line}</p>
             ))}
           </div>
         </div>
@@ -1055,7 +1231,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="featured-img">
-                      {pinned.cat==='photo'&&(pinned.images||[]).length>0?(
+                      {pinned.subcat==='photo'&&(pinned.images||[]).length>0?(
                         <img src={pinned.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
                       ):pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}
                       {pinned.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
@@ -1118,7 +1294,54 @@ export default function App() {
               </aside>
             </>
           ) : (
-            filtered.length>0 ? (
+            activeCat==='music' ? (
+              /* ── MUSIC PLAYLIST VIEW ── */
+              <div style={{gridColumn:'1/-1'}}>
+                {filtered.length>0 ? (
+                  <>
+                    <div className="music-section-header">
+                      <span style={{fontSize:'1.4rem'}}>🎵</span>
+                      <h3>플레이리스트</h3>
+                      <span className="music-count">{filtered.length}곡</span>
+                    </div>
+                    <div className="music-playlist" style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 8px 8px',overflow:'hidden',marginBottom:24}}>
+                      {filtered.map((p,idx)=>{
+                        const v=parseVideoUrl(p.videoUrl||'');
+                        const isPlay=nowPlaying?.post.id===p.id;
+                        const thumb=v?`https://img.youtube.com/vi/${v.id}/mqdefault.jpg`:null;
+                        return(
+                          <div key={p.id} className={`music-item${isPlay?' playing':''}`}
+                            onClick={()=>{setNowPlaying({post:p,videoId:v?.id});setPlayerOpen(true);}}>
+                            <div className="music-num">{isPlay?'▶':idx+1}</div>
+                            {thumb?<img className="music-thumb" src={thumb} alt=""/>:
+                              <div className="music-thumb-placeholder">🎵</div>}
+                            <div className="music-info">
+                              <div className="music-title">{p.title}</div>
+                              <div className="music-sub">{p.summary||p.date}</div>
+                            </div>
+                            <div className="music-actions" onClick={e=>e.stopPropagation()}>
+                              <button className="btn-sm" onClick={()=>requestEdit(p)}>수정</button>
+                              <button className="btn-del-sm" onClick={()=>requestDelete(p.id,p.title)}>삭제</button>
+                            </div>
+                            <button className={`music-play-btn${isPlay?' active':''}`}
+                              onClick={e=>{e.stopPropagation();setNowPlaying({post:p,videoId:v?.id});setPlayerOpen(true);}}>
+                              {isPlay?'⏸':'▶'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                ):(
+                  <div className="empty">
+                    <div className="empty-icon">🎵</div>
+                    <div className="empty-title">플레이리스트가 비어있어요</div>
+                    <div className="empty-desc">유튜브 링크와 함께 음악을 추가해보세요!</div>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 음악 추가</button>
+                  </div>
+                )}
+              </div>
+            ) : filtered.length>0 ? (
               <div className="posts-grid-3">
                 {filtered.map(p=>(
                   <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
@@ -1145,7 +1368,7 @@ export default function App() {
               <div className="empty">
                 <div className="empty-icon">{EMO[activeCat]}</div>
                 <div className="empty-title">
-                  {activeSub!=="all" ? `${subcats.find(s=>s.id===activeSub)?.label} 글이 아직 없어요` : `아직 ${catInfo.label}에 글이 없어요`}
+                  {activeSub!=="all" ? `${subcats.find(s=>s.id===activeSub)?.label} 글이 아직 없어요` : `아직 ${catInfo?.label}에 글이 없어요`}
                 </div>
                 <div className="empty-desc">첫 번째 글을 작성해보세요!</div>
                 <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 첫 글 작성하기</button>
@@ -1212,6 +1435,41 @@ export default function App() {
       </div>
     )}
 
+
+    {/* ── MUSIC PLAYER BAR ── */}
+    {playerOpen && nowPlaying && (
+      <div className="music-player-bar">
+        <div style={{fontSize:'1.3rem'}}>🎵</div>
+        <div className="music-player-info">
+          <div className="music-player-title">{nowPlaying.post.title}</div>
+          <div className="music-player-sub">{nowPlaying.post.summary}</div>
+        </div>
+        <div className="music-player-btns">
+          {/* 이전 곡 */}
+          <button className="music-player-btn" onClick={()=>{
+            const music=posts.filter(p=>p.cat==='music'&&p.videoUrl);
+            const idx=music.findIndex(p=>p.id===nowPlaying.post.id);
+            const prev=music[(idx-1+music.length)%music.length];
+            if(prev){const v=parseVideoUrl(prev.videoUrl||'');setNowPlaying({post:prev,videoId:v?.id});}
+          }}>⏮</button>
+          {/* YouTube iframe 팝업 */}
+          <button className="music-player-btn main" onClick={()=>{
+            if(nowPlaying.videoId){
+              window.open(`https://www.youtube.com/watch?v=${nowPlaying.videoId}`,'_blank');
+            }
+          }}>▶</button>
+          {/* 다음 곡 */}
+          <button className="music-player-btn" onClick={()=>{
+            const music=posts.filter(p=>p.cat==='music'&&p.videoUrl);
+            const idx=music.findIndex(p=>p.id===nowPlaying.post.id);
+            const next=music[(idx+1)%music.length];
+            if(next){const v=parseVideoUrl(next.videoUrl||'');setNowPlaying({post:next,videoId:v?.id});}
+          }}>⏭</button>
+        </div>
+        <button className="music-close-btn" onClick={()=>setPlayerOpen(false)}>✕</button>
+      </div>
+    )}
+
     <footer><b>dlwnsleejun.com</b> — 이준 기록집</footer>
 
     {/* ── WRITE MODAL ── */}
@@ -1238,17 +1496,18 @@ export default function App() {
             {(form.cat==='inspiration') && (
               <div className="fg">
                 <label>영상 URL (유튜브 / 쇼츠 / 인스타 릴스)</label>
-                <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
+                {form.cat==='music'&&<div style={{background:'#E91E8C11',border:'1px solid #E91E8C33',borderRadius:6,padding:'8px 12px',marginBottom:8,fontSize:'0.78rem',color:'#E91E8C'}}>🎵 뮤직 카테고리: 유튜브 링크를 입력하면 플레이리스트에 추가됩니다</div>}
+              <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
                 <div className="video-hint">유튜브, 유튜브 쇼츠, 인스타그램 릴스 링크를 입력하세요</div>
               </div>
             )}
             <div className="fg">
               <label>대표 이미지</label>
               <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>{form.cat==="photo"?"사진 여러 장 선택":"파일 선택"}</button>
+                <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>{form.subcat==="photo"?"사진 여러 장 선택":"파일 선택"}</button>
                 {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
               </div>
-              {form.cat==='photo'&&(form.images||[]).length>0&&(
+              {form.subcat==='photo'&&(form.images||[]).length>0&&(
                 <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
                   {(form.images||[]).map((src,i)=>(
                     <div key={i} style={{position:'relative'}}>
@@ -1259,8 +1518,8 @@ export default function App() {
                   ))}
                 </div>
               )}
-              {form.cat!=='photo'&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
-              <input ref={imgRef} type="file" accept="image/*" multiple={form.cat==='photo'} style={{display:'none'}} onChange={handleImg}/>
+              {form.subcat!=='photo'&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
+              <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'} style={{display:'none'}} onChange={handleImg}/>
             </div>
             <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
               <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
