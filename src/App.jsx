@@ -78,6 +78,7 @@ const CATS = [
   { id:"inspiration", label:"인스퍼레이션",color:"#6554C0", desc:"영감을 주는 것들을 기록합니다" },
   { id:"career",      label:"커리어",      color:"#00875A", desc:"직무와 성장에 관한 이야기" },
   { id:"study",       label:"스터디",      color:"#FF8B00", desc:"배움을 정리하고 공유합니다" },
+  { id:"invest",      label:"투자",        color:"#1B5E20", desc:"포트폴리오와 투자 기록을 담습니다" },
   { id:"daily",       label:"하루기록",    color:"#DE350B", desc:"일기와 오늘의 사진을 기록합니다" },
   { id:"baseball",    label:"야구",        color:"#1565C0", desc:"야구 직관 기록과 사진을 담습니다" },
   { id:"music",       label:"뮤직",        color:"#E91E8C", desc:"좋아하는 음악을 플레이리스트로 담습니다" },
@@ -89,6 +90,7 @@ const SUBCATS = {
   inspiration: [{ id:"all",label:"전체" },{ id:"video",label:"유튜브/쇼츠" },{ id:"reels",label:"인스타 릴스" },{ id:"book",label:"도서" },{ id:"design",label:"디자인" }],
   career:      [{ id:"all",label:"전체" },{ id:"job",label:"취업/이직" },{ id:"project",label:"프로젝트" },{ id:"cert",label:"자격증" },{ id:"etc",label:"기타" }],
   study:       [{ id:"all",label:"전체" },{ id:"english",label:"영어" },{ id:"japanese",label:"일본어" },{ id:"adsp",label:"ADSP" },{ id:"logistics",label:"물류관리사" },{ id:"book",label:"책" },{ id:"movie",label:"영화" },{ id:"etc",label:"기타" }],
+  invest:      [{ id:"all",label:"전체" }],
   daily:       [{ id:"all",label:"전체" },{ id:"diary",label:"일기" },{ id:"photo",label:"오늘의 사진" }],
   baseball:    [{ id:"all",label:"전체" },{ id:"game",label:"경기 리뷰" },{ id:"practice",label:"훈련" },{ id:"etc",label:"기타" }],
   music:       [{ id:"all",label:"전체" }],
@@ -125,8 +127,270 @@ function getTodayKr() {
 
 // ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
 // Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
-// ─── TradingView 위젯 (API 불필요, iframe 임베드) ─────────────────────────────
-// CORS 없음, 실시간 차트, 무료
+// ─── 투자 포트폴리오 데이터 (매주 업데이트 예정) ─────────────────────────────
+// Last updated: 2026-05-08
+const PORTFOLIO = {
+  updatedAt: "2026년 5월 8일",
+  thesis: "AI 인프라 집중 + 글로벌 분산 + 현금 방어. 변동성 높은 시장에서 핵심 성장주는 무게중심을 유지하되, ETF로 리스크를 분산하고 단기 채권으로 현금 흐름을 확보한다.",
+  items: [
+    { label:"NVDA",      pct:18, color:"#76b900", desc:"AI 인프라 왕. 데이터센터 GPU 독점적 지위 — 사이클 최정점에서도 해자가 가장 뚜렷한 단일종목" },
+    { label:"QQQ",       pct:15, color:"#0052CC", desc:"나스닥 100 ETF. 빅테크 전체에 베팅하면서 개별종목 리스크 분산. 장기 복리의 핵심 엔진" },
+    { label:"MSFT",      pct:12, color:"#00a4ef", desc:"Azure + Copilot 조합. 클라우드·AI 양쪽 다 먹는 현금창출 기계. 가장 안정적인 성장주" },
+    { label:"AMZN",      pct:10, color:"#FF9900", desc:"AWS 재가속 + 광고 성장. 소매 마진 개선 사이클 진입 — 지금이 가장 저평가된 빅테크" },
+    { label:"VOO",       pct:12, color:"#1565C0", desc:"S&P500 ETF. 시장 전체를 저비용으로 소유. 나머지 포지션의 변동성을 완충하는 앵커" },
+    { label:"PLTR",      pct:8,  color:"#8c1aff", desc:"정부·기업 AI 데이터 플랫폼. 흑자 전환 후 성장 가속. 가장 높은 업사이드가 남은 중형주" },
+    { label:"BRK.B",     pct:8,  color:"#8B6914", desc:"버핏의 포트폴리오를 통째로 소유. 하락장 방어 + 복리 기계. 현금보다 낫다" },
+    { label:"단기채권/예금",pct:17, color:"#78909C", desc:"SHV(초단기 국채 ETF) + 예금. 연 5% 수익 확보하며 기회 올 때 즉시 투입할 실탄 유지" },
+  ]
+};
+
+// 이 함수를 매주 호출해서 포트폴리오 재검토 (콘솔에서 확인 가능)
+function getWeeklyUpdateNote() {
+  const start = new Date("2026-05-08");
+  const now = new Date();
+  const weeks = Math.floor((now - start) / (7 * 24 * 60 * 60 * 1000));
+  return weeks > 0 ? `최초 작성 후 ${weeks}주 경과 — 리밸런싱 검토 필요` : null;
+}
+
+function InvestPortfolio() {
+  const total = PORTFOLIO.items.reduce((s,i)=>s+i.pct,0);
+  const [hovered,setHovered] = useState(null);
+  const [canvasMounted,setCanvasMounted] = useState(false);
+  const canvasRef = useRef(null);
+  const chartRef  = useRef(null);
+  const weekNote  = getWeeklyUpdateNote();
+
+  useEffect(()=>{
+    if(!window.Chart){ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'; s.onload=()=>setCanvasMounted(true); document.head.appendChild(s); }
+    else setCanvasMounted(true);
+  },[]);
+
+  useEffect(()=>{
+    if(!canvasMounted||!canvasRef.current) return;
+    if(chartRef.current){ chartRef.current.destroy(); }
+    chartRef.current = new window.Chart(canvasRef.current,{
+      type:'doughnut',
+      data:{
+        labels: PORTFOLIO.items.map(i=>i.label),
+        datasets:[{
+          data: PORTFOLIO.items.map(i=>i.pct),
+          backgroundColor: PORTFOLIO.items.map(i=>i.color),
+          borderColor: '#fff',
+          borderWidth: 3,
+          hoverOffset: 8,
+        }]
+      },
+      options:{
+        responsive:true, maintainAspectRatio:false, cutout:'62%',
+        plugins:{ legend:{display:false}, tooltip:{
+          callbacks:{ label: ctx=>`${ctx.label}  ${ctx.parsed}%` }
+        }},
+        onHover:(_,els)=>{ setHovered(els.length>0?els[0].index:null); }
+      }
+    });
+    return ()=>{ if(chartRef.current){ chartRef.current.destroy(); chartRef.current=null; } };
+  },[canvasMounted]);
+
+  const hItem = hovered!==null ? PORTFOLIO.items[hovered] : null;
+
+  return (
+    <div style={{padding:'32px 0'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:6}}>
+        <h2 style={{fontSize:'1.3rem',fontWeight:800,color:'#1B5E20'}}>💼 AI 시대의 포트폴리오</h2>
+        <span style={{fontSize:'0.72rem',background:'#e8f5e9',color:'#2e7d32',padding:'3px 10px',borderRadius:20,fontWeight:600}}>$10,000 기준</span>
+      </div>
+      <div style={{fontSize:'0.8rem',color:'var(--muted)',marginBottom:4}}>업데이트: {PORTFOLIO.updatedAt} {weekNote && <span style={{color:'#e65100'}}>· {weekNote}</span>}</div>
+      <p style={{fontSize:'0.83rem',color:'var(--sub)',lineHeight:1.7,marginBottom:28,maxWidth:640,padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
+        {PORTFOLIO.thesis}
+      </p>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'start'}}>
+        {/* 도넛 차트 */}
+        <div style={{position:'relative'}}>
+          <div style={{position:'relative',width:'100%',height:280}}>
+            <canvas ref={canvasRef} role="img" aria-label="포트폴리오 도넛 차트"/>
+            <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',textAlign:'center',pointerEvents:'none'}}>
+              {hItem ? (
+                <>
+                  <div style={{fontSize:'1.4rem',fontWeight:800,color:hItem.color}}>{hItem.pct}%</div>
+                  <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text)'}}>{hItem.label}</div>
+                  <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>${(10000*hItem.pct/100).toFixed(0)}</div>
+                </>
+              ) : (
+                <>
+                  <div style={{fontSize:'1.5rem',fontWeight:800,color:'#1B5E20'}}>$10K</div>
+                  <div style={{fontSize:'0.72rem',color:'var(--muted)'}}>포트폴리오</div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+        {/* 종목 리스트 */}
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {PORTFOLIO.items.map((item,i)=>(
+            <div key={i}
+              onMouseEnter={()=>{ setHovered(i); if(chartRef.current){chartRef.current.data.datasets[0].hoverOffset=12;chartRef.current.update();} }}
+              onMouseLeave={()=>{ setHovered(null); if(chartRef.current){chartRef.current.update();} }}
+              style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'default',background:hovered===i?'#f1f8e9':'transparent',transition:'background 0.15s'}}>
+              <div style={{width:10,height:10,borderRadius:'50%',background:item.color,flexShrink:0}}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span style={{fontWeight:700,fontSize:'0.82rem',color:item.color}}>{item.label}</span>
+                  <span style={{fontWeight:700,fontSize:'0.82rem',color:'var(--text)'}}>{item.pct}%</span>
+                </div>
+                {hovered===i && <div style={{fontSize:'0.72rem',color:'var(--muted)',marginTop:3,lineHeight:1.5}}>{item.desc}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{marginTop:20,fontSize:'0.68rem',color:'#bbb',borderTop:'1px solid var(--border)',paddingTop:10}}>
+        ⚠️ 투자 참고용 포트폴리오입니다. 실제 투자 결정은 본인의 판단으로 하세요.
+      </div>
+    </div>
+  );
+}
+
+// ─── 홈 할일 + 위클리 플래너 (로컬 저장) ──────────────────────────────────────
+function usePersist(key, init) {
+  const [val,setVal] = useState(()=>{ try{ const v=localStorage.getItem(key); return v?JSON.parse(v):init; }catch{return init;} });
+  const set = useCallback(v=>{ setVal(v); try{localStorage.setItem(key,JSON.stringify(v));}catch{} },[key]);
+  return [val,set];
+}
+
+const WEEK_DAYS = ['월','화','수','목','금','토','일'];
+const HOURS = Array.from({length:18},(_,i)=>i+6); // 6~23시
+
+function TodoPlanner() {
+  const todayKey = new Date().toISOString().slice(0,10);
+  const [todos,   setTodos]   = usePersist(`dlwns-todo-${todayKey}`, []);
+  const [weekly,  setWeekly]  = usePersist('dlwns-weekly', Object.fromEntries(WEEK_DAYS.map(d=>[d,{}])));
+  const [newTodo, setNewTodo] = useState('');
+  const [view,    setView]    = useState('todo'); // 'todo' | 'weekly'
+  const [editCell,setEditCell]= useState(null); // {day,hour}
+  const [cellVal, setCellVal] = useState('');
+
+  const addTodo = () => {
+    if(!newTodo.trim()) return;
+    setTodos([...todos,{id:Date.now(),text:newTodo.trim(),done:false}]);
+    setNewTodo('');
+  };
+  const toggleTodo = id => setTodos(todos.map(t=>t.id===id?{...t,done:!t.done}:t));
+  const delTodo    = id => setTodos(todos.filter(t=>t.id!==id));
+
+  const startEdit = (day,hour) => {
+    setEditCell({day,hour});
+    setCellVal(weekly[day]?.[hour]||'');
+  };
+  const saveCell = () => {
+    if(!editCell) return;
+    const {day,hour} = editCell;
+    const updated = {...weekly,[day]:{...weekly[day],[hour]:cellVal}};
+    setWeekly(updated);
+    setEditCell(null); setCellVal('');
+  };
+
+  return (
+    <section className="stock-section">
+      <div className="stock-inner">
+        <div className="section-head" style={{marginBottom:16}}>
+          <div className="section-title">오늘 & 이번 주</div>
+          <div style={{display:'flex',gap:6}}>
+            <button onClick={()=>setView('todo')}
+              style={{padding:'5px 14px',borderRadius:20,fontSize:'0.78rem',fontWeight:600,cursor:'pointer',border:`1.5px solid ${view==='todo'?'#0052CC':'var(--border)'}`,background:view==='todo'?'#0052CC':'#fff',color:view==='todo'?'#fff':'var(--muted)',transition:'all 0.15s'}}>
+              📋 할일
+            </button>
+            <button onClick={()=>setView('weekly')}
+              style={{padding:'5px 14px',borderRadius:20,fontSize:'0.78rem',fontWeight:600,cursor:'pointer',border:`1.5px solid ${view==='weekly'?'#0052CC':'var(--border)'}`,background:view==='weekly'?'#0052CC':'#fff',color:view==='weekly'?'#fff':'var(--muted)',transition:'all 0.15s'}}>
+              📅 위클리
+            </button>
+          </div>
+        </div>
+
+        {view==='todo' && (
+          <div>
+            {/* 입력 */}
+            <div style={{display:'flex',gap:8,marginBottom:20}}>
+              <input value={newTodo} onChange={e=>setNewTodo(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&addTodo()}
+                placeholder="오늘 할 일을 입력하세요..."
+                style={{flex:1,padding:'9px 14px',borderRadius:8,border:'1.5px solid var(--border)',fontSize:'0.85rem',outline:'none',fontFamily:'inherit',background:'#fafafa'}}/>
+              <button onClick={addTodo}
+                style={{padding:'9px 18px',borderRadius:8,background:'#0052CC',color:'#fff',border:'none',fontSize:'0.82rem',fontWeight:700,cursor:'pointer'}}>
+                추가
+              </button>
+            </div>
+            {/* 할일 목록 */}
+            {todos.length===0 ? (
+              <div style={{textAlign:'center',padding:'32px 0',color:'var(--muted)',fontSize:'0.85rem'}}>
+                오늘의 할 일을 추가해보세요 ✍️
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                {todos.map(t=>(
+                  <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:8,background:t.done?'#f5f5f5':'#fff',border:'1px solid var(--border)',transition:'all 0.15s'}}>
+                    <div onClick={()=>toggleTodo(t.id)} style={{width:18,height:18,borderRadius:4,border:`2px solid ${t.done?'#0052CC':'#ccc'}`,background:t.done?'#0052CC':'transparent',flexShrink:0,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                      {t.done && <span style={{color:'#fff',fontSize:'11px',fontWeight:900}}>✓</span>}
+                    </div>
+                    <span style={{flex:1,fontSize:'0.85rem',color:t.done?'var(--muted)':'var(--text)',textDecoration:t.done?'line-through':'none'}}>{t.text}</span>
+                    <button onClick={()=>delTodo(t.id)} style={{background:'none',border:'none',color:'#ccc',cursor:'pointer',fontSize:'14px',padding:'0 2px',lineHeight:1}}>✕</button>
+                  </div>
+                ))}
+                <div style={{fontSize:'0.72rem',color:'var(--muted)',textAlign:'right',marginTop:4}}>
+                  {todos.filter(t=>t.done).length}/{todos.length} 완료
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {view==='weekly' && (
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.72rem',tableLayout:'fixed',minWidth:560}}>
+              <thead>
+                <tr>
+                  <th style={{width:36,padding:'6px 4px',color:'var(--muted)',fontWeight:500,borderBottom:'2px solid var(--border)',textAlign:'center'}}></th>
+                  {WEEK_DAYS.map(d=>(
+                    <th key={d} style={{padding:'8px 4px',fontWeight:700,color:'var(--text)',borderBottom:'2px solid var(--border)',textAlign:'center',fontSize:'0.78rem'}}>
+                      {d}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {HOURS.map(h=>(
+                  <tr key={h} style={{borderBottom:'1px solid #f0f0f0'}}>
+                    <td style={{padding:'4px',color:'var(--muted)',textAlign:'center',fontWeight:500,fontSize:'0.68rem',verticalAlign:'top',paddingTop:6}}>{h}</td>
+                    {WEEK_DAYS.map(d=>{
+                      const val = weekly[d]?.[h]||'';
+                      const isEditing = editCell?.day===d&&editCell?.hour===h;
+                      return (
+                        <td key={d} style={{padding:'2px',verticalAlign:'top',minHeight:28}}>
+                          {isEditing ? (
+                            <input autoFocus value={cellVal} onChange={e=>setCellVal(e.target.value)}
+                              onBlur={saveCell} onKeyDown={e=>{if(e.key==='Enter')saveCell();if(e.key==='Escape'){setEditCell(null);setCellVal('');}}}
+                              style={{width:'100%',padding:'3px 5px',fontSize:'0.7rem',border:'1.5px solid #0052CC',borderRadius:4,outline:'none',fontFamily:'inherit',background:'#f0f5ff'}}/>
+                          ) : (
+                            <div onClick={()=>startEdit(d,h)}
+                              style={{width:'100%',minHeight:26,padding:'3px 5px',borderRadius:4,fontSize:'0.7rem',color:'var(--text)',cursor:'text',background:val?'#e8f0fe':'transparent',border:'1px solid transparent',transition:'all 0.1s',lineHeight:1.4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}
+                              onMouseEnter={e=>{ if(!val) e.currentTarget.style.background='#f5f5f5'; }}
+                              onMouseLeave={e=>{ if(!val) e.currentTarget.style.background='transparent'; }}>
+                              {val||''}
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div style={{fontSize:'0.68rem',color:'var(--muted)',marginTop:8,textAlign:'right'}}>셀을 클릭해서 바로 입력하세요</div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const HERO_BG = null;
@@ -420,52 +684,267 @@ footer b{color:var(--primary);}
 body.has-player{padding-bottom:76px;}
 `;
 
-// ─── TradingView 마켓 인사이트 섹션 ─────────────────────────────────────────
-const TV_SYMBOLS = [
-  { label:"S&P 500", symbol:"SP:SPX",        color:"#0052CC" },
-  { label:"NASDAQ",  symbol:"NASDAQ:IXIC",   color:"#6554C0" },
-  { label:"KOSPI",   symbol:"KRX:KOSPI",     color:"#00875A" },
-  { label:"NVIDIA",  symbol:"NASDAQ:NVDA",   color:"#76b900" },
-  { label:"Apple",   symbol:"NASDAQ:AAPL",   color:"#555555" },
-  { label:"Tesla",   symbol:"NASDAQ:TSLA",   color:"#cc0000" },
-  { label:"삼성전자", symbol:"KRX:005930",    color:"#1428A0" },
-  { label:"SK하이닉스",symbol:"KRX:000660",  color:"#EA001E" },
-];
+// ─── Market Chart (구글 파이낸스 스타일, 외부 API 불필요) ──────────────────────
+function genIntraday(last, pct, n) {
+  const open = last / (1 + pct);
+  const pts = [open];
+  for (let i = 1; i < n; i++) {
+    const t = i / (n - 1);
+    const trend = open + (last - open) * (t + Math.sin(t * Math.PI * 2) * 0.15);
+    const noise = (Math.random() - 0.5) * Math.abs(last - open) * 0.3;
+    pts.push(parseFloat((trend + noise).toFixed(2)));
+  }
+  pts[pts.length - 1] = last;
+  return pts;
+}
+function genRandom(last, n, minPct, maxPct) {
+  const pts = [];
+  let v = last / (1 + minPct + (maxPct - minPct) * Math.random());
+  for (let i = 0; i < n - 1; i++) {
+    v = v * (1 + (Math.random() - 0.45) * 0.025);
+    pts.push(parseFloat(v.toFixed(2)));
+  }
+  pts.push(last);
+  return pts;
+}
+function genSeries(last, dailyPcts, days, ppd) {
+  const all = [];
+  let cur = last;
+  for (let d = days - 1; d >= 0; d--) {
+    const dayOpen = cur / (1 + (dailyPcts[days - 1 - d] || 0));
+    const dayEnd = cur;
+    for (let p = 0; p < ppd; p++) {
+      const t = p / (ppd - 1);
+      all.push(parseFloat((dayOpen + (dayEnd - dayOpen) * t + (Math.random() - 0.5) * Math.abs(dayEnd - dayOpen) * 0.3).toFixed(2)));
+    }
+    cur = dayOpen;
+  }
+  all.reverse();
+  all[all.length - 1] = last;
+  return all;
+}
+function intraLabels(n) {
+  const l = [];
+  for (let i = 0; i < n; i++) {
+    const m = 9 * 60 + 30 + Math.round(i * (6.5 * 60) / (n - 1));
+    const h = Math.floor(m / 60);
+    const mm = String(m % 60).padStart(2, '0');
+    l.push(h + ':' + mm);
+  }
+  return l;
+}
+function mLabels(n, months) {
+  const mn = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  const now = new Date();
+  const l = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - Math.round((n - 1 - i) / (n - 1) * months * 30));
+    l.push(months <= 1 ? (d.getMonth()+1)+'/'+d.getDate() : mn[d.getMonth()]);
+  }
+  return l;
+}
+
+const MKT_DATA = {
+  sp500: {
+    name:'S&P 500', lastPrice:5728.90,
+    '1D':{ pts:null, labels:null, open:5664.70 },
+    '5D':{ pts:null, labels:['월','화','수','목','금'], open:5620.10 },
+    '1M':{ pts:null, labels:null, open:5570.33 },
+    '6M':{ pts:null, labels:null, open:4892.10 },
+    '1Y':{ pts:null, labels:null, open:4693.45 },
+    high52:5848.42, low52:4103.78, mktcap:'$50.2T',
+    pcts:{'1D':0.0113,'5D':0.0194,'1M':0.0283,'6M':0.172,'1Y':0.221}
+  },
+  kospi: {
+    name:'KOSPI', lastPrice:2556.61,
+    '1D':{ pts:null, labels:null, open:2534.40 },
+    '5D':{ pts:null, labels:['월','화','수','목','금'], open:2510.20 },
+    '1M':{ pts:null, labels:null, open:2493.80 },
+    '6M':{ pts:null, labels:null, open:2298.34 },
+    '1Y':{ pts:null, labels:null, open:2403.67 },
+    high52:2677.37, low52:2169.68, mktcap:'₩1,976조',
+    pcts:{'1D':0.0087,'5D':0.0185,'1M':0.0251,'6M':0.112,'1Y':0.063}
+  }
+};
+// 데이터 초기화
+function initMktData() {
+  ['sp500','kospi'].forEach(idx => {
+    const d = MKT_DATA[idx];
+    const last = d.lastPrice;
+    d['1D'].pts  = genIntraday(last, d.pcts['1D'], 78);
+    d['1D'].labels = intraLabels(78);
+    d['5D'].pts  = genSeries(last, [0.002,-0.008,0.015,-0.003,d.pcts['1D']], 5, 8);
+    d['1M'].pts  = genRandom(last, 22, -0.03, d.pcts['1M']+0.02);
+    d['1M'].labels = mLabels(22, 1);
+    d['6M'].pts  = genRandom(last, 26, -0.05, d.pcts['6M']+0.03);
+    d['6M'].labels = mLabels(26, 6);
+    d['1Y'].pts  = genRandom(last, 52, -0.10, d.pcts['1Y']+0.05);
+    d['1Y'].labels = mLabels(52, 12);
+  });
+}
+initMktData();
+
+// Chart.js 동적 로드 (CDN)
+if (!window.__chartjsLoaded) {
+  window.__chartjsLoaded = true;
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
+  document.head.appendChild(s);
+}
 
 function MarketSection() {
-  const [sel, setSel] = useState(0);
-  const src = `https://s.tradingview.com/widgetembed/?frameElementId=tv_chart&symbol=${encodeURIComponent(TV_SYMBOLS[sel].symbol)}&interval=D&hidesidetoolbar=1&hidetoptoolbar=0&symboledit=0&saveimage=0&toolbarbg=F1F3F6&studies=[]&theme=light&style=3&timezone=Asia%2FSeoul&withdateranges=1&showpopupbutton=0&locale=kr&utm_source=dlwnsleejun.com&utm_medium=widget`;
+  const [idx, setIdx] = useState('sp500');
+  const [period, setPeriod] = useState('1D');
+  const canvasRef = useRef(null);
+  const chartRef  = useRef(null);
+
+  const d   = MKT_DATA[idx];
+  const pd  = d[period];
+  const pts = pd.pts || [];
+  const first = pts[0] || d.lastPrice;
+  const last  = pts[pts.length - 1] || d.lastPrice;
+  const chg   = last - first;
+  const chgPct = first ? (chg / first * 100) : 0;
+  const up    = chg >= 0;
+  const upColor  = '#0f9d58';
+  const dnColor  = '#d93025';
+  const lineColor = up ? upColor : dnColor;
+  const sign  = chg >= 0 ? '+' : '';
+
+  const PERIODS = [
+    {id:'1D', label:'1일'},{id:'5D', label:'5일'},{id:'1M', label:'1달'},
+    {id:'6M', label:'6달'},{id:'1Y', label:'1년'}
+  ];
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !pts.length) return;
+    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null; }
+    const mn = Math.min(...pts) - (Math.max(...pts) - Math.min(...pts)) * 0.05;
+    const mx = Math.max(...pts) + (Math.max(...pts) - Math.min(...pts)) * 0.05;
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const gridC = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    const tickC = isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.38)';
+    chartRef.current = new window.Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: pts.map((_,i)=>i),
+        datasets: [{
+          data: pts, borderColor: lineColor, borderWidth: 1.8,
+          pointRadius: 0, pointHoverRadius: 4,
+          pointHoverBackgroundColor: lineColor,
+          pointHoverBorderColor: '#fff', pointHoverBorderWidth: 2,
+          tension: 0.35, fill: true,
+          backgroundColor: (ctx) => {
+            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 170);
+            g.addColorStop(0, lineColor + '28');
+            g.addColorStop(1, lineColor + '00');
+            return g;
+          }
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode:'index', intersect:false },
+        plugins: { legend:{display:false}, tooltip:{
+          callbacks:{
+            label: ctx => {
+              const v = ctx.raw;
+              const c = v - first;
+              const p = (c/first*100);
+              const s = c>=0?'+':'';
+              return `${v.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})}  ${s}${c.toFixed(2)} (${s}${p.toFixed(2)}%)`;
+            },
+            title: ctx => pd.labels?.[ctx[0].dataIndex] || ''
+          },
+          backgroundColor: isDark?'rgba(30,30,30,0.95)':'rgba(255,255,255,0.97)',
+          titleColor: isDark?'#aaa':'#666',
+          bodyColor: isDark?'#fff':'#111',
+          borderColor: isDark?'rgba(255,255,255,0.15)':'rgba(0,0,0,0.12)',
+          borderWidth: 1, padding: 10, cornerRadius: 6,
+        }},
+        scales: {
+          x: { display: false },
+          y: {
+            display: true, position:'right', min:mn, max:mx,
+            grid: { color:gridC, drawBorder:false },
+            ticks: { color:tickC, font:{size:11}, maxTicksLimit:5,
+              callback: v => v>=1000 ? Math.round(v).toLocaleString('ko-KR') : v.toFixed(2)
+            },
+            border: { display:false }
+          }
+        }
+      }
+    });
+    return () => { if(chartRef.current){ chartRef.current.destroy(); chartRef.current=null; } };
+  }, [idx, period]);
+
+  const xIdxs = pts.length > 4 ? [0, Math.floor(pts.length/4), Math.floor(pts.length/2), Math.floor(pts.length*3/4), pts.length-1] : [];
+  const stats = [
+    { label:'시작가', val: first.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}) },
+    { label:'52주 최고', val: d.high52.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}) },
+    { label:'52주 최저', val: d.low52.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2}) },
+    { label:'시가총액', val: d.mktcap },
+  ];
+  const pLabel = {  '1D':'오늘','5D':'5일간','1M':'1달간','6M':'6달간','1Y':'1년간' };
+
   return (
     <section className="stock-section">
       <div className="stock-inner">
-        <div className="section-head">
-          <div>
-            <div className="section-title">마켓 인사이트</div>
-            <div className="section-sub">실시간 차트 (TradingView)</div>
-          </div>
-        </div>
-        {/* 종목 선택 탭 */}
-        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:14}}>
-          {TV_SYMBOLS.map((s,i)=>(
-            <button key={i} onClick={()=>setSel(i)}
-              style={{padding:'5px 12px',borderRadius:20,fontSize:'0.75rem',fontWeight:600,cursor:'pointer',border:`2px solid ${sel===i?s.color:'var(--border)'}`,background:sel===i?s.color:'#fff',color:sel===i?'#fff':s.color,transition:'all 0.15s'}}>
-              {s.label}
+        {/* 탭 */}
+        <div style={{display:'flex',gap:0,borderBottom:'1px solid var(--border)',marginBottom:20}}>
+          {['sp500','kospi'].map(k=>(
+            <button key={k} onClick={()=>{setIdx(k);setPeriod('1D');}}
+              style={{padding:'10px 20px',fontSize:'0.82rem',fontWeight:500,cursor:'pointer',border:'none',borderBottom:`2px solid ${idx===k?'#1a73e8':'transparent'}`,background:'none',color:idx===k?'#1a73e8':'var(--muted)',transition:'all 0.15s'}}>
+              {k==='sp500'?'S&P 500':'KOSPI'}
             </button>
           ))}
         </div>
-        {/* TradingView iframe */}
-        <div style={{borderRadius:8,overflow:'hidden',border:'1px solid var(--border)',background:'#fff'}}>
-          <iframe
-            key={sel}
-            src={src}
-            style={{width:'100%',height:400,border:'none',display:'block'}}
-            allowTransparency={true}
-            scrolling="no"
-            title={TV_SYMBOLS[sel].label}
-          />
+        {/* 헤더 */}
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
+          <div>
+            <div style={{fontSize:'0.72rem',color:'var(--muted)',marginBottom:6,letterSpacing:'0.02em'}}>{d.name}</div>
+            <div style={{fontSize:'2rem',fontWeight:400,color:'var(--text)',letterSpacing:'-0.5px',lineHeight:1,fontFamily:'Montserrat, sans-serif'}}>
+              {last.toLocaleString('ko-KR',{minimumFractionDigits:2,maximumFractionDigits:2})}
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginTop:6}}>
+              <span style={{fontSize:'0.8rem',fontWeight:600,color:up?upColor:dnColor}}>
+                {sign}{chg.toFixed(2)} ({sign}{chgPct.toFixed(2)}%)
+              </span>
+              <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{pLabel[period]}</span>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:2}}>
+            {PERIODS.map(p=>(
+              <button key={p.id} onClick={()=>setPeriod(p.id)}
+                style={{padding:'5px 10px',fontSize:'0.72rem',fontWeight:500,cursor:'pointer',borderRadius:4,background:period===p.id?'var(--bg)':'none',border:'none',color:period===p.id?'var(--text)':'var(--muted)',transition:'all 0.12s'}}>
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{fontSize:'0.7rem',color:'#bbb',marginTop:8}}>
-          💡 TradingView 실시간 데이터 · 투자 참고용으로만 활용하세요
+        {/* 차트 */}
+        <div style={{position:'relative',width:'100%',height:180,margin:'16px 0 4px'}}>
+          <canvas ref={canvasRef} role="img" aria-label={`${d.name} 주가 지수 차트`}/>
+        </div>
+        {/* x축 레이블 */}
+        <div style={{display:'flex',justifyContent:'space-between',padding:'0 2px',marginBottom:16}}>
+          {xIdxs.map((i,n)=>(
+            <span key={n} style={{fontSize:'0.68rem',color:'var(--muted)'}}>{pd.labels?.[i]||''}</span>
+          ))}
+        </div>
+        {/* 통계 */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',borderTop:'1px solid var(--border)'}}>
+          {stats.map(s=>(
+            <div key={s.label} style={{padding:'12px 0',borderRight:'1px solid var(--border)','&:lastChild':{borderRight:'none'}}}>
+              <div style={{fontSize:'0.68rem',color:'var(--muted)',marginBottom:3}}>{s.label}</div>
+              <div style={{fontSize:'0.8rem',fontWeight:500,color:'var(--text)'}}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{fontSize:'0.68rem',color:'#bbb',marginTop:10}}>
+          💡 시뮬레이션 데이터 · 실제 투자 판단에 활용하지 마세요
         </div>
       </div>
     </section>
@@ -770,7 +1249,7 @@ export default function App() {
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',daily:'☀️',baseball:'⚾',music:'🎵'};
+  const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',invest:'💰',daily:'☀️',baseball:'⚾',music:'🎵'};
   const isAll = activeCat==="all";
   const catInfo = CAT[activeCat];
   const subcats = !isAll ? SUBCATS[activeCat]||[] : [];
@@ -810,6 +1289,8 @@ export default function App() {
     return s && s.id!=='all' ? s.label : null;
   };
 
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   return (<>
     <style>{CSS}</style>
 
@@ -823,19 +1304,50 @@ export default function App() {
         <div className="header-actions">
           <span style={{fontSize:'0.78rem',color:'var(--muted)',fontWeight:500,marginRight:4}}>{getTodayKr()}</span>
           <input type="file" accept=".json" style={{display:'none'}} id="import-file" onChange={importData}/>
-          <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px'}} title="데이터 백업/복구"
-            onClick={async ()=>{
-              const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소)\n\n확인: 현재 데이터를 JSON 파일로 저장\n취소: JSON 파일에서 데이터 복원");
-              if(choice) exportData();
-              else document.getElementById('import-file').click();
-            }}>💾 백업</button>
-          <button className="btn btn-outline" style={{fontSize:'0.72rem',padding:'6px 10px',color:'#00875A',borderColor:'#b3e6cc'}} title="DB 진단 - Supabase 저장 데이터 확인"
-            onClick={async ()=>{
-              const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
-              setDbDiag({ rows: rows || [] });
-            }}>🔍 DB</button>
-          <button className="btn btn-outline" onClick={()=>{setPrForm({...profile});setModal('profile');}}>프로필</button>
-          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
+          {/* 설정 드롭다운 */}
+          <div style={{position:'relative'}}>
+            <button className="btn btn-outline" style={{fontSize:'0.78rem',padding:'6px 14px'}}
+              onClick={()=>setSettingsOpen(v=>!v)}>
+              ⚙️ 설정
+            </button>
+            {settingsOpen && (
+              <>
+                <div style={{position:'fixed',inset:0,zIndex:299}} onClick={()=>setSettingsOpen(false)}/>
+                <div style={{position:'absolute',right:0,top:'calc(100% + 6px)',background:'#fff',border:'1px solid var(--border)',borderRadius:10,boxShadow:'0 4px 20px rgba(0,0,0,0.10)',zIndex:300,minWidth:160,overflow:'hidden'}}>
+                  <button style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'11px 16px',background:'none',border:'none',fontSize:'0.83rem',cursor:'pointer',color:'var(--text)',textAlign:'left'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
+                    onMouseLeave={e=>e.currentTarget.style.background='none'}
+                    onClick={async ()=>{
+                      setSettingsOpen(false);
+                      const choice = window.confirm("📤 내보내기(확인) / 📥 가져오기(취소)");
+                      if(choice) exportData();
+                      else document.getElementById('import-file').click();
+                    }}>
+                    <span>💾</span> 백업 / 복구
+                  </button>
+                  <div style={{height:1,background:'var(--border)',margin:'0 12px'}}/>
+                  <button style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'11px 16px',background:'none',border:'none',fontSize:'0.83rem',cursor:'pointer',color:'#00875A',textAlign:'left'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
+                    onMouseLeave={e=>e.currentTarget.style.background='none'}
+                    onClick={async ()=>{
+                      setSettingsOpen(false);
+                      const rows = await dbGetAll("dlwns_posts", `owner=eq.${OWNER_ID}`);
+                      setDbDiag({ rows: rows || [] });
+                    }}>
+                    <span>🔍</span> DB 진단
+                  </button>
+                  <div style={{height:1,background:'var(--border)',margin:'0 12px'}}/>
+                  <button style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'11px 16px',background:'none',border:'none',fontSize:'0.83rem',cursor:'pointer',color:'var(--text)',textAlign:'left'}}
+                    onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
+                    onMouseLeave={e=>e.currentTarget.style.background='none'}
+                    onClick={()=>{ setSettingsOpen(false); setPrForm({...profile}); setModal('profile'); }}>
+                    <span>👤</span> 프로필 편집
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
       </div>
     </header>
@@ -1087,8 +1599,8 @@ export default function App() {
         </section>
       )}
 
-      {/* ── STOCK (TradingView) ── */}
-      {isAll && <MarketSection />}
+      {/* ── TODO + WEEKLY (마켓 인사이트 대체) ── */}
+      {isAll && <TodoPlanner />}
 
       {/* ── CONTENT ── */}
       <section className="content-section" ref={contentRef}>
@@ -1219,7 +1731,12 @@ export default function App() {
               </aside>
             </>
           ) : (
-            activeCat==='music' ? (
+            activeCat==='invest' ? (
+              /* ── INVEST PORTFOLIO VIEW ── */
+              <div style={{gridColumn:'1/-1'}}>
+                <InvestPortfolio />
+              </div>
+            ) : activeCat==='music' ? (
               /* ── MUSIC PLAYLIST VIEW ── */
               <div style={{gridColumn:'1/-1'}}>
                 {filtered.length>0 ? (
