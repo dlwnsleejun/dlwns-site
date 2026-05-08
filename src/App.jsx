@@ -322,7 +322,7 @@ function TodoPlanner() {
             {/* 할일 목록 */}
             {todos.length===0 ? (
               <div style={{textAlign:'center',padding:'32px 0',color:'var(--muted)',fontSize:'0.85rem'}}>
-                오늘의 할 일을 추가해보세요 ✍️
+                {'오늘의 할 일을 추가해보세요 ✍️'}
               </div>
             ) : (
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
@@ -384,7 +384,7 @@ function TodoPlanner() {
                 ))}
               </tbody>
             </table>
-            <div style={{fontSize:'0.68rem',color:'var(--muted)',marginTop:8,textAlign:'right'}}>셀을 클릭해서 바로 입력하세요</div>
+            <div style={{fontSize:'0.68rem',color:'var(--muted)',marginTop:8,textAlign:'right'}}>{'셀을 클릭해서 바로 입력하세요'}</div>
           </div>
         )}
       </div>
@@ -1261,6 +1261,9 @@ export default function App() {
 
   const stocks = [];
 
+  // ── 설정 드롭다운 ─────────────────────────────────────────────────────────
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
   // ── Video render helper ─────────────────────────────────────────────────────
@@ -1288,8 +1291,6 @@ export default function App() {
     const s = subs.find(s=>s.id===p.subcat);
     return s && s.id!=='all' ? s.label : null;
   };
-
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (<>
     <style>{CSS}</style>
