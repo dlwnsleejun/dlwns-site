@@ -144,37 +144,535 @@ const PORTFOLIO = {
   ]
 };
 
-// 이 함수를 매주 호출해서 포트폴리오 재검토 (콘솔에서 확인 가능)
-function getWeeklyUpdateNote() {
-  const start = new Date("2026-05-08");
-  const now = new Date();
-  const weeks = Math.floor((now - start) / (7 * 24 * 60 * 60 * 1000));
-  return weeks > 0 ? `최초 작성 후 ${weeks}주 경과 — 리밸런싱 검토 필요` : null;
+// ─── 리밸런싱 체크리스트 기본 항목 ─────────────────────────────────────────────
+const DEFAULT_REBALANCE_ITEMS = [
+  "보유 종목 중 -10% 이상 하락한 종목 점검",
+  "보유 종목 중 +20% 이상 상승한 종목 익절 여부 검토",
+  "이번 주 빅테크 실적 발표 일정 확인 (NVDA, MSFT, AMZN 등)",
+  "이번 주 FOMC / 주요 경제 지표 발표 일정 확인 (CPI, PCE, 고용)",
+  "포트폴리오 비율이 목표 대비 ±3%p 이상 어긋났는지 확인",
+  "현금/단기채권 비중이 15% 이상 유지되는지 확인",
+  "추가 매수할 종목이 있다면 그 근거(테마/실적/밸류에이션) 정리",
+  "지난 주 일일 메모를 다시 읽고 의사결정 패턴 복기",
+  "다음 주 환율(USD/KRW), 유가, 금리 흐름 체크",
+];
+
+// 주 시작일 (월요일) 구하기
+function getWeekStart(d = new Date()) {
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1 - day);
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return monday.toISOString().slice(0, 10);
+}
+
+// ─── 내 보유 종목 (매수 기록 + 현재가 수동 입력 + 가격 히스토리) ─────────────
+function MyHoldings() {
+  // ── 상태 ──
+  const [trades, setTrades]       = useState([]);   // 매수 거래 목록
+  const [prices, setPrices]       = useState([]);   // 가격 히스토리 (모든 날짜의 모든 종목)
+  const [loaded, setLoaded]       = useState(false);
+
+  // ── 모달 상태 ──
+  const [tradeModal, setTradeModal] = useState(null); // null | {mode:'add'|'edit', data}
+  const [priceModal, setPriceModal] = useState(null); // null | {ticker, date, price}
+  const [expanded, setExpanded]     = useState({});   // { ticker: bool }
+
+  // 초기 로드
+  useEffect(()=>{
+    (async ()=>{
+      try{
+        const tr = await dbGetAll('dlwns_holdings', `owner=eq.${OWNER_ID}`);
+        if(tr) setTrades(tr.map(r=>r.data).filter(Boolean));
+      } catch(e){ console.warn('trades load fail', e); }
+      try{
+        const pr = await dbGetAll('dlwns_prices', `owner=eq.${OWNER_ID}`);
+        if(pr) setPrices(pr.map(r=>r.data).filter(Boolean));
+      } catch(e){ console.warn('prices load fail', e); }
+      setLoaded(true);
+    })();
+  },[]);
+
+  // ── 매수 거래 CRUD ──
+  const saveTrade = async (data, isEdit) => {
+    const id = isEdit ? data.id : Date.now();
+    const payload = {
+      trade_id: id,
+      owner: OWNER_ID,
+      data: {
+        id,
+        ticker: data.ticker.trim().toUpperCase(),
+        buyDate: data.buyDate,
+        buyPrice: Number(data.buyPrice),
+        quantity: Number(data.quantity),
+        note: (data.note || '').trim(),
+      }
+    };
+    const r = await dbUpsert('dlwns_holdings', payload);
+    if(r){
+      if(isEdit){
+        setTrades(trades.map(t=>t.id===id?payload.data:t));
+      } else {
+        setTrades([...trades, payload.data]);
+      }
+      setTradeModal(null);
+    } else {
+      alert('매수 기록 저장 실패. dlwns_holdings 테이블이 생성되었는지 확인하세요.');
+    }
+  };
+  const delTrade = async (id) => {
+    if(!confirm('이 매수 기록을 삭제할까요?')) return;
+    const ok = await dbDelete('dlwns_holdings', `trade_id=eq.${id}`);
+    if(ok) setTrades(trades.filter(t=>t.id!==id));
+  };
+
+  // ── 가격 기록 (현재가 입력) ──
+  // 같은 종목+같은 날짜는 덮어쓰기. price_id는 hash(ticker+date)로 고정 (간단히 ticker_date 기반)
+  const savePrice = async ({ticker, date, price}) => {
+    if(!ticker || !date || !price) return;
+    const tk = ticker.trim().toUpperCase();
+    const priceNum = Number(price);
+    // (ticker, date) 조합으로 ID 생성 — 같은 날 재입력 시 덮어쓰기
+    const idStr = `${tk}_${date.replace(/-/g,'')}`;
+    // bigint로 변환: 영문은 charCode 합산, 숫자는 그대로 → 안전한 양의 정수
+    let id = 0;
+    for(let i=0; i<idStr.length; i++){ id = (id * 31 + idStr.charCodeAt(i)) % Number.MAX_SAFE_INTEGER; }
+    const payload = {
+      price_id: id,
+      owner: OWNER_ID,
+      data: { ticker: tk, date, price: priceNum }
+    };
+    const r = await dbUpsert('dlwns_prices', payload);
+    if(r){
+      // 기존 동일 (ticker,date) 제거 후 추가
+      const filtered = prices.filter(p=>!(p.ticker===tk && p.date===date));
+      setPrices([...filtered, payload.data]);
+      setPriceModal(null);
+    } else {
+      alert('가격 저장 실패. dlwns_prices 테이블이 생성되었는지 확인하세요.');
+    }
+  };
+
+  // ── 종목별 집계 ──
+  // trades를 ticker별로 묶기
+  const byTicker = {};
+  trades.forEach(t=>{
+    if(!byTicker[t.ticker]) byTicker[t.ticker] = { ticker:t.ticker, trades:[], totalQty:0, totalCost:0 };
+    byTicker[t.ticker].trades.push(t);
+    byTicker[t.ticker].totalQty  += t.quantity;
+    byTicker[t.ticker].totalCost += t.buyPrice * t.quantity;
+  });
+
+  // 각 ticker별 최신 가격
+  const latestPrice = (ticker) => {
+    const arr = prices.filter(p=>p.ticker===ticker).sort((a,b)=>b.date.localeCompare(a.date));
+    return arr[0] || null;
+  };
+
+  // 가격 히스토리 (해당 ticker, 날짜 오름차순)
+  const priceHistory = (ticker) =>
+    prices.filter(p=>p.ticker===ticker).sort((a,b)=>a.date.localeCompare(b.date));
+
+  // 전체 요약
+  let summary = { invested:0, current:0, gain:0, gainPct:0 };
+  Object.values(byTicker).forEach(grp=>{
+    const last = latestPrice(grp.ticker);
+    summary.invested += grp.totalCost;
+    if(last){
+      summary.current += last.price * grp.totalQty;
+    } else {
+      summary.current += grp.totalCost; // 가격 미입력 시 매수가로 간주
+    }
+  });
+  summary.gain = summary.current - summary.invested;
+  summary.gainPct = summary.invested > 0 ? (summary.gain / summary.invested * 100) : 0;
+
+  const gainColor = (v) => v > 0 ? '#c62828' : v < 0 ? '#1565C0' : '#666'; // 한국식: 빨강=상승, 파랑=하락
+  const fmtMoney = (v) => `$${v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+  const fmtPct   = (v) => `${v>=0?'+':''}${v.toFixed(2)}%`;
+
+  if(!loaded){
+    return <div style={{padding:'40px 0',textAlign:'center',fontSize:'0.85rem',color:'var(--muted)'}}>보유 종목 로딩 중...</div>;
+  }
+
+  const tickers = Object.keys(byTicker).sort();
+
+  return (
+    <div style={{marginTop:36,padding:'20px 0',borderTop:'1px solid var(--border)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}}>
+        <h3 style={{fontSize:'1.05rem',fontWeight:700,color:'#1B5E20'}}>📊 내 보유 종목</h3>
+        <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{tickers.length}개 종목 · {trades.length}건 매수</span>
+        <button onClick={()=>setTradeModal({mode:'add',data:{ticker:'',buyDate:new Date().toISOString().slice(0,10),buyPrice:'',quantity:'',note:''}})}
+                style={{marginLeft:'auto',fontSize:'0.78rem',padding:'5px 12px',background:'#1B5E20',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:600}}>
+          + 매수 기록
+        </button>
+      </div>
+      <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>매수 내역과 현재가를 직접 입력합니다. 매일 가격을 한 번씩 기록하면 종목별 추이 그래프가 그려집니다.</p>
+
+      {/* ─── 전체 요약 ─── */}
+      {trades.length > 0 && (
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:18,padding:'14px 16px',background:'#f1f8e9',borderRadius:10}}>
+          <div>
+            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>총 투자금</div>
+            <div style={{fontSize:'1.05rem',fontWeight:700,color:'var(--text)'}}>{fmtMoney(summary.invested)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>현재 평가</div>
+            <div style={{fontSize:'1.05rem',fontWeight:700,color:'var(--text)'}}>{fmtMoney(summary.current)}</div>
+          </div>
+          <div>
+            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>평가 손익</div>
+            <div style={{fontSize:'1.05rem',fontWeight:700,color:gainColor(summary.gain)}}>
+              {summary.gain>=0?'+':''}{fmtMoney(summary.gain).replace('$','')}{summary.gain>=0?' $':' $'}
+            </div>
+          </div>
+          <div>
+            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>수익률</div>
+            <div style={{fontSize:'1.05rem',fontWeight:700,color:gainColor(summary.gain)}}>{fmtPct(summary.gainPct)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── 종목별 카드 ─── */}
+      {tickers.length === 0 ? (
+        <div style={{fontSize:'0.82rem',color:'var(--muted)',padding:'30px',background:'#fafafa',borderRadius:8,textAlign:'center'}}>
+          아직 매수 기록이 없습니다. 우측 상단 <strong>"+ 매수 기록"</strong> 버튼으로 첫 종목을 추가해보세요.
+        </div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {tickers.map(tk=>{
+            const grp = byTicker[tk];
+            const avgPrice = grp.totalCost / grp.totalQty;
+            const lp = latestPrice(tk);
+            const cur = lp ? lp.price * grp.totalQty : null;
+            const gain = cur !== null ? (cur - grp.totalCost) : null;
+            const gainPct = cur !== null ? (gain / grp.totalCost * 100) : null;
+            const history = priceHistory(tk);
+            const isExp = !!expanded[tk];
+            return (
+              <div key={tk} style={{border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',background:'#fff'}}>
+                {/* 종목 헤더 */}
+                <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
+                  <span style={{fontSize:'1.05rem',fontWeight:800,color:'#1B5E20'}}>{tk}</span>
+                  <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{grp.totalQty}주 · 평단 ${avgPrice.toFixed(2)}</span>
+                  <button onClick={()=>setPriceModal({ticker:tk,date:new Date().toISOString().slice(0,10),price:lp?String(lp.price):''})}
+                          style={{marginLeft:'auto',fontSize:'0.74rem',padding:'4px 10px',background:'#fff',border:'1px solid #1B5E20',color:'#1B5E20',borderRadius:6,cursor:'pointer',fontWeight:600}}>
+                    💵 현재가 입력
+                  </button>
+                </div>
+                {/* 종목 지표 */}
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8,marginBottom:10}}>
+                  <div>
+                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>매수 총액</div>
+                    <div style={{fontSize:'0.88rem',fontWeight:700}}>{fmtMoney(grp.totalCost)}</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>현재가</div>
+                    <div style={{fontSize:'0.88rem',fontWeight:700}}>{lp ? `$${lp.price.toFixed(2)}` : '—'}</div>
+                    {lp && <div style={{fontSize:'0.62rem',color:'var(--muted)'}}>{lp.date}</div>}
+                  </div>
+                  <div>
+                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>평가금</div>
+                    <div style={{fontSize:'0.88rem',fontWeight:700}}>{cur !== null ? fmtMoney(cur) : '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>손익 / 수익률</div>
+                    {gain !== null ? (
+                      <div style={{fontSize:'0.88rem',fontWeight:700,color:gainColor(gain)}}>
+                        {gain>=0?'+':''}{gain.toFixed(2)} $ · {fmtPct(gainPct)}
+                      </div>
+                    ) : <div style={{fontSize:'0.88rem',color:'var(--muted)'}}>가격 미입력</div>}
+                  </div>
+                </div>
+                {/* 가격 추이 그래프 (간단한 SVG 라인) */}
+                {history.length >= 2 && <PriceSparkline history={history} avgPrice={avgPrice}/>}
+                {history.length === 1 && (
+                  <div style={{fontSize:'0.7rem',color:'var(--muted)',padding:'8px',background:'#fafafa',borderRadius:6,marginTop:4}}>
+                    가격 기록 1개. 매일 한 번씩 입력하면 추이 그래프가 그려집니다.
+                  </div>
+                )}
+                {/* 펼치기: 매수 내역 + 가격 히스토리 */}
+                <button onClick={()=>setExpanded({...expanded,[tk]:!isExp})}
+                        style={{marginTop:8,fontSize:'0.72rem',background:'transparent',border:'none',color:'#1B5E20',cursor:'pointer',padding:0,fontWeight:600}}>
+                  {isExp ? '▲ 접기' : '▼ 매수 내역 / 가격 기록 보기'}
+                </button>
+                {isExp && (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--border)'}}>
+                    <div style={{fontSize:'0.74rem',fontWeight:700,marginBottom:6,color:'var(--sub)'}}>매수 내역 ({grp.trades.length}건)</div>
+                    <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:12}}>
+                      {grp.trades.sort((a,b)=>a.buyDate.localeCompare(b.buyDate)).map(t=>(
+                        <div key={t.id} style={{display:'flex',gap:8,alignItems:'center',fontSize:'0.75rem',padding:'5px 8px',background:'#fafafa',borderRadius:5}}>
+                          <span style={{color:'var(--muted)'}}>{t.buyDate}</span>
+                          <span style={{fontWeight:600}}>${t.buyPrice.toFixed(2)} × {t.quantity}주</span>
+                          <span style={{color:'var(--muted)'}}>= ${(t.buyPrice*t.quantity).toFixed(2)}</span>
+                          {t.note && <span style={{color:'var(--muted)',fontStyle:'italic',flex:1}}>· {t.note}</span>}
+                          <button onClick={()=>setTradeModal({mode:'edit',data:t})} style={{marginLeft:'auto',background:'transparent',border:'none',color:'#1565C0',cursor:'pointer',fontSize:'0.72rem'}}>수정</button>
+                          <button onClick={()=>delTrade(t.id)} style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'0.88rem'}}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                    {history.length > 0 && (
+                      <>
+                        <div style={{fontSize:'0.74rem',fontWeight:700,marginBottom:6,color:'var(--sub)'}}>가격 기록 ({history.length}일)</div>
+                        <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
+                          {history.slice().reverse().slice(0,30).map((p,i)=>(
+                            <div key={i} style={{fontSize:'0.7rem',padding:'3px 8px',background:'#f1f8e9',borderRadius:4}}>
+                              <span style={{color:'var(--muted)'}}>{p.date}</span> <strong>${p.price.toFixed(2)}</strong>
+                            </div>
+                          ))}
+                          {history.length > 30 && <span style={{fontSize:'0.7rem',color:'var(--muted)'}}>...외 {history.length-30}건</span>}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ─── 매수 기록 추가/수정 모달 ─── */}
+      {tradeModal && (
+        <TradeModal
+          mode={tradeModal.mode}
+          initial={tradeModal.data}
+          onSave={(data)=>saveTrade(data, tradeModal.mode==='edit')}
+          onClose={()=>setTradeModal(null)}
+        />
+      )}
+
+      {/* ─── 현재가 입력 모달 ─── */}
+      {priceModal && (
+        <PriceModal
+          initial={priceModal}
+          onSave={savePrice}
+          onClose={()=>setPriceModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── 가격 추이 sparkline (SVG, 의존성 없음) ──────────────────────────────────
+function PriceSparkline({ history, avgPrice }) {
+  if(history.length < 2) return null;
+  const w = 600, h = 80, padX = 8, padY = 10;
+  const prices = history.map(p=>p.price);
+  const min = Math.min(...prices, avgPrice);
+  const max = Math.max(...prices, avgPrice);
+  const range = max - min || 1;
+  const xAt = (i) => padX + (i/(history.length-1)) * (w - padX*2);
+  const yAt = (v) => padY + (1 - (v-min)/range) * (h - padY*2);
+  const linePath = history.map((p,i)=>`${i===0?'M':'L'}${xAt(i).toFixed(1)},${yAt(p.price).toFixed(1)}`).join(' ');
+  const areaPath = `${linePath} L${xAt(history.length-1).toFixed(1)},${h-padY} L${xAt(0).toFixed(1)},${h-padY} Z`;
+  const lastPrice = prices[prices.length-1];
+  const trendUp = lastPrice >= prices[0];
+  const stroke = trendUp ? '#c62828' : '#1565C0';
+  const fill   = trendUp ? 'rgba(198,40,40,0.08)' : 'rgba(21,101,192,0.08)';
+  const avgY = yAt(avgPrice);
+  return (
+    <div style={{marginTop:6,position:'relative'}}>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{width:'100%',height:60,display:'block'}}>
+        <path d={areaPath} fill={fill}/>
+        <path d={linePath} stroke={stroke} strokeWidth="2" fill="none"/>
+        <line x1={padX} y1={avgY} x2={w-padX} y2={avgY} stroke="#999" strokeWidth="1" strokeDasharray="4 3"/>
+        <text x={w-padX-2} y={avgY-2} fontSize="10" fill="#666" textAnchor="end">평단 ${avgPrice.toFixed(2)}</text>
+        <circle cx={xAt(history.length-1)} cy={yAt(lastPrice)} r="3" fill={stroke}/>
+      </svg>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.62rem',color:'var(--muted)',marginTop:2}}>
+        <span>{history[0].date} ${prices[0].toFixed(2)}</span>
+        <span>{history[history.length-1].date} ${lastPrice.toFixed(2)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── 매수 기록 모달 ──────────────────────────────────────────────────────────
+function TradeModal({ mode, initial, onSave, onClose }) {
+  const [f, setF] = useState(initial);
+  const valid = f.ticker.trim() && f.buyDate && Number(f.buyPrice) > 0 && Number(f.quantity) > 0;
+  const update = (k,v) => setF({...f,[k]:v});
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:24,maxWidth:420,width:'100%'}}>
+        <h3 style={{fontSize:'1.05rem',fontWeight:700,marginBottom:14,color:'#1B5E20'}}>{mode==='edit'?'매수 기록 수정':'+ 새 매수 기록'}</h3>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>종목 (티커, 예: NVDA)</label>
+            <input value={f.ticker} onChange={e=>update('ticker',e.target.value.toUpperCase())} autoFocus
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem',textTransform:'uppercase'}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>매수일</label>
+            <input type="date" value={f.buyDate} onChange={e=>update('buyDate',e.target.value)}
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            <div>
+              <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>매수가 ($)</label>
+              <input type="number" step="0.01" min="0" value={f.buyPrice} onChange={e=>update('buyPrice',e.target.value)} placeholder="850.50"
+                     style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
+            </div>
+            <div>
+              <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>수량 (주)</label>
+              <input type="number" step="0.0001" min="0" value={f.quantity} onChange={e=>update('quantity',e.target.value)} placeholder="2"
+                     style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
+            </div>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>메모 (선택)</label>
+            <input value={f.note} onChange={e=>update('note',e.target.value)} placeholder="매수 이유..."
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.85rem'}}/>
+          </div>
+          {f.buyPrice && f.quantity && (
+            <div style={{fontSize:'0.78rem',color:'var(--muted)',padding:'6px 10px',background:'#f9fbe7',borderRadius:5}}>
+              총 매수금: ${(Number(f.buyPrice)*Number(f.quantity)).toFixed(2)}
+            </div>
+          )}
+        </div>
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18}}>
+          <button onClick={onClose} style={{padding:'8px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer',fontSize:'0.85rem'}}>취소</button>
+          <button onClick={()=>onSave(f)} disabled={!valid} style={{padding:'8px 16px',background:valid?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:valid?'pointer':'not-allowed',fontSize:'0.85rem',fontWeight:600}}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 현재가 입력 모달 ────────────────────────────────────────────────────────
+function PriceModal({ initial, onSave, onClose }) {
+  const [f, setF] = useState(initial);
+  const valid = f.ticker.trim() && f.date && Number(f.price) > 0;
+  return (
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:24,maxWidth:380,width:'100%'}}>
+        <h3 style={{fontSize:'1.05rem',fontWeight:700,marginBottom:6,color:'#1B5E20'}}>💵 현재가 입력</h3>
+        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>증권사 앱이나 야후 파이낸스에서 가격을 확인하고 입력하세요. 같은 날짜에 다시 입력하면 덮어쓰기됩니다.</p>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>종목</label>
+            <input value={f.ticker} onChange={e=>setF({...f,ticker:e.target.value.toUpperCase()})}
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem',textTransform:'uppercase',background:'#f5f5f5'}} readOnly={!!initial.ticker}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>날짜</label>
+            <input type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
+          </div>
+          <div>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>가격 ($)</label>
+            <input type="number" step="0.01" min="0" value={f.price} onChange={e=>setF({...f,price:e.target.value})} autoFocus placeholder="920.30"
+                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18}}>
+          <button onClick={onClose} style={{padding:'8px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer',fontSize:'0.85rem'}}>취소</button>
+          <button onClick={()=>onSave(f)} disabled={!valid} style={{padding:'8px 16px',background:valid?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:valid?'pointer':'not-allowed',fontSize:'0.85rem',fontWeight:600}}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function InvestPortfolio() {
-  const total = PORTFOLIO.items.reduce((s,i)=>s+i.pct,0);
-  const [hovered,setHovered] = useState(null);
-  const [canvasMounted,setCanvasMounted] = useState(false);
+  // ── 포트폴리오 상태 (DB 동기화) ──
+  const [portfolio, setPortfolio] = useState(PORTFOLIO);
+  const [pfLoaded, setPfLoaded]   = useState(false);
+  const [editMode, setEditMode]   = useState(false);
+  const [editDraft, setEditDraft] = useState(null);
+
+  // ── 차트 ──
+  const [hovered, setHovered]               = useState(null);
+  const [canvasMounted, setCanvasMounted]   = useState(false);
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
-  const weekNote  = getWeeklyUpdateNote();
 
+  // ── 일일 시장 메모 ──
+  const [notes, setNotes]       = useState([]);
+  const [noteText, setNoteText] = useState('');
+  const [noteDate, setNoteDate] = useState(new Date().toISOString().slice(0,10));
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  // ── 주간 리밸런싱 체크리스트 ──
+  const weekStart = getWeekStart();
+  const [rebItems, setRebItems]     = useState([]); // [{text, custom}]
+  const [rebChecks, setRebChecks]   = useState({}); // { idx: true/false }
+  const [rebAddText, setRebAddText] = useState('');
+  const today = new Date();
+  const isSunday = today.getDay() === 0;
+
+  // Chart.js CDN 로드
   useEffect(()=>{
-    if(!window.Chart){ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js'; s.onload=()=>setCanvasMounted(true); document.head.appendChild(s); }
-    else setCanvasMounted(true);
+    if(!window.Chart){
+      const s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
+      s.onload=()=>setCanvasMounted(true);
+      document.head.appendChild(s);
+    } else setCanvasMounted(true);
   },[]);
 
+  // 초기 데이터 로드 (포트폴리오 + 메모 + 체크리스트)
   useEffect(()=>{
-    if(!canvasMounted||!canvasRef.current) return;
+    (async ()=>{
+      // 1. 포트폴리오
+      try{
+        const pfRow = await dbGet('dlwns_portfolio', `owner=eq.${OWNER_ID}`);
+        if(pfRow && pfRow.data && pfRow.data.items && pfRow.data.items.length > 0){
+          setPortfolio(pfRow.data);
+        }
+      } catch(e){ console.warn('portfolio load fail', e); }
+      setPfLoaded(true);
+
+      // 2. 일일 메모 (최근 14일)
+      try{
+        const noteRows = await dbGetAll('dlwns_market_notes', `owner=eq.${OWNER_ID}`);
+        if(noteRows){
+          const sorted = noteRows
+            .map(r => r.data)
+            .filter(d => d && d.date)
+            .sort((a,b) => b.date.localeCompare(a.date))
+            .slice(0, 14);
+          setNotes(sorted);
+        }
+      } catch(e){ console.warn('notes load fail', e); }
+
+      // 3. 리밸런싱 체크리스트
+      try{
+        const rebRow = await dbGet('dlwns_rebalance', `owner=eq.${OWNER_ID}`);
+        if(rebRow && rebRow.data){
+          const d = rebRow.data;
+          // 새 주가 시작되면 체크 상태 초기화
+          if(d.weekStart === weekStart){
+            setRebItems(d.items || DEFAULT_REBALANCE_ITEMS.map(t=>({text:t, custom:false})));
+            setRebChecks(d.checks || {});
+          } else {
+            // 사용자 추가 항목은 유지, 체크만 초기화
+            const customItems = (d.items || []).filter(it=>it.custom);
+            setRebItems([...DEFAULT_REBALANCE_ITEMS.map(t=>({text:t,custom:false})), ...customItems]);
+            setRebChecks({});
+          }
+        } else {
+          setRebItems(DEFAULT_REBALANCE_ITEMS.map(t=>({text:t,custom:false})));
+        }
+      } catch(e){
+        console.warn('rebalance load fail', e);
+        setRebItems(DEFAULT_REBALANCE_ITEMS.map(t=>({text:t,custom:false})));
+      }
+    })();
+  },[]);
+
+  // 차트 그리기/업데이트
+  useEffect(()=>{
+    if(!canvasMounted || !canvasRef.current || !pfLoaded) return;
     if(chartRef.current){ chartRef.current.destroy(); }
     chartRef.current = new window.Chart(canvasRef.current,{
       type:'doughnut',
       data:{
-        labels: PORTFOLIO.items.map(i=>i.label),
+        labels: portfolio.items.map(i=>i.label),
         datasets:[{
-          data: PORTFOLIO.items.map(i=>i.pct),
-          backgroundColor: PORTFOLIO.items.map(i=>i.color),
+          data: portfolio.items.map(i=>i.pct),
+          backgroundColor: portfolio.items.map(i=>i.color),
           borderColor: '#fff',
           borderWidth: 3,
           hoverOffset: 8,
@@ -189,22 +687,152 @@ function InvestPortfolio() {
       }
     });
     return ()=>{ if(chartRef.current){ chartRef.current.destroy(); chartRef.current=null; } };
-  },[canvasMounted]);
+  },[canvasMounted, pfLoaded, portfolio]);
 
-  const hItem = hovered!==null ? PORTFOLIO.items[hovered] : null;
+  const hItem = hovered!==null ? portfolio.items[hovered] : null;
+  const total = portfolio.items.reduce((s,i)=>s+i.pct,0);
+
+  // ── 포트폴리오 편집 ──
+  const startEdit = () => {
+    setEditDraft(JSON.parse(JSON.stringify(portfolio)));
+    setEditMode(true);
+  };
+  const cancelEdit = () => { setEditMode(false); setEditDraft(null); };
+  const saveEdit = async () => {
+    if(!editDraft) return;
+    const sum = editDraft.items.reduce((s,i)=>s+Number(i.pct||0),0);
+    if(sum !== 100){
+      if(!confirm(`비율 합계가 ${sum}%입니다 (100% 권장). 그래도 저장할까요?`)) return;
+    }
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`;
+    const next = { ...editDraft, updatedAt: dateStr, items: editDraft.items.map(i=>({...i, pct:Number(i.pct)})) };
+    const r = await dbUpsert('dlwns_portfolio', { owner: OWNER_ID, data: next });
+    if(r){
+      setPortfolio(next);
+      setEditMode(false);
+      setEditDraft(null);
+    } else {
+      alert('저장 실패. Supabase 연결을 확인해주세요.');
+    }
+  };
+  const updateDraftItem = (idx, key, val) => {
+    const items = [...editDraft.items];
+    items[idx] = { ...items[idx], [key]: val };
+    setEditDraft({...editDraft, items});
+  };
+  const addDraftItem = () => {
+    setEditDraft({...editDraft, items:[...editDraft.items, {label:'새 종목', pct:0, color:'#888888', desc:''}]});
+  };
+  const removeDraftItem = (idx) => {
+    setEditDraft({...editDraft, items: editDraft.items.filter((_,i)=>i!==idx)});
+  };
+  const updateThesis = (v) => setEditDraft({...editDraft, thesis: v});
+
+  // ── 일일 메모 저장 ──
+  const saveNote = async () => {
+    if(!noteText.trim()) return;
+    setNoteSaving(true);
+    const noteId = Date.now();
+    const payload = {
+      note_id: noteId,
+      owner: OWNER_ID,
+      data: { id: noteId, date: noteDate, text: noteText.trim(), createdAt: new Date().toISOString() }
+    };
+    const r = await dbUpsert('dlwns_market_notes', payload);
+    if(r){
+      setNotes([payload.data, ...notes].slice(0,14));
+      setNoteText('');
+    } else {
+      alert('메모 저장 실패');
+    }
+    setNoteSaving(false);
+  };
+  const delNote = async (id) => {
+    if(!confirm('이 메모를 삭제할까요?')) return;
+    const ok = await dbDelete('dlwns_market_notes', `note_id=eq.${id}`);
+    if(ok) setNotes(notes.filter(n=>n.id!==id));
+  };
+
+  // ── 리밸런싱 체크리스트 ──
+  const saveRebalance = async (items, checks) => {
+    const payload = { owner: OWNER_ID, data: { weekStart, items, checks } };
+    await dbUpsert('dlwns_rebalance', payload);
+  };
+  const toggleCheck = (idx) => {
+    const next = { ...rebChecks, [idx]: !rebChecks[idx] };
+    setRebChecks(next);
+    saveRebalance(rebItems, next);
+  };
+  const addRebItem = () => {
+    if(!rebAddText.trim()) return;
+    const next = [...rebItems, { text: rebAddText.trim(), custom: true }];
+    setRebItems(next);
+    setRebAddText('');
+    saveRebalance(next, rebChecks);
+  };
+  const removeRebItem = (idx) => {
+    if(!rebItems[idx].custom) return;
+    const next = rebItems.filter((_,i)=>i!==idx);
+    const nextChecks = {};
+    Object.keys(rebChecks).forEach(k=>{
+      const ki = Number(k);
+      if(ki < idx) nextChecks[ki] = rebChecks[k];
+      else if(ki > idx) nextChecks[ki-1] = rebChecks[k];
+    });
+    setRebItems(next);
+    setRebChecks(nextChecks);
+    saveRebalance(next, nextChecks);
+  };
+
+  const checkedCount = rebItems.reduce((s,_,i)=>s+(rebChecks[i]?1:0),0);
 
   return (
     <div style={{padding:'32px 0'}}>
-      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:6}}>
+      {/* ─── 헤더 ─── */}
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:6,flexWrap:'wrap'}}>
         <h2 style={{fontSize:'1.3rem',fontWeight:800,color:'#1B5E20'}}>💼 AI 시대의 포트폴리오</h2>
         <span style={{fontSize:'0.72rem',background:'#e8f5e9',color:'#2e7d32',padding:'3px 10px',borderRadius:20,fontWeight:600}}>$10,000 기준</span>
+        {!editMode && (
+          <button onClick={startEdit} style={{marginLeft:'auto',fontSize:'0.78rem',padding:'5px 12px',background:'#fff',border:'1px solid #1B5E20',color:'#1B5E20',borderRadius:6,cursor:'pointer',fontWeight:600}}>✏️ 편집</button>
+        )}
       </div>
-      <div style={{fontSize:'0.8rem',color:'var(--muted)',marginBottom:4}}>업데이트: {PORTFOLIO.updatedAt} {weekNote && <span style={{color:'#e65100'}}>· {weekNote}</span>}</div>
-      <p style={{fontSize:'0.83rem',color:'var(--sub)',lineHeight:1.7,marginBottom:28,maxWidth:640,padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
-        {PORTFOLIO.thesis}
-      </p>
+      <div style={{fontSize:'0.8rem',color:'var(--muted)',marginBottom:4}}>업데이트: {portfolio.updatedAt}</div>
+
+      {/* ─── 편집 모드 ─── */}
+      {editMode ? (
+        <div style={{background:'#fffde7',border:'2px solid #fbc02d',borderRadius:10,padding:18,marginBottom:24}}>
+          <div style={{fontSize:'0.85rem',fontWeight:700,marginBottom:10,color:'#5d4037'}}>📝 포트폴리오 편집</div>
+          <div style={{marginBottom:14}}>
+            <label style={{display:'block',fontSize:'0.75rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>투자 철학 (thesis)</label>
+            <textarea value={editDraft.thesis} onChange={e=>updateThesis(e.target.value)} rows={3} style={{width:'100%',padding:8,borderRadius:6,border:'1px solid #ddd',fontSize:'0.82rem',fontFamily:'inherit',resize:'vertical'}}/>
+          </div>
+          <div style={{fontSize:'0.75rem',fontWeight:600,marginBottom:6,color:'var(--sub)'}}>종목 ({editDraft.items.length}개 · 합계 {editDraft.items.reduce((s,i)=>s+Number(i.pct||0),0)}%)</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
+            {editDraft.items.map((it,i)=>(
+              <div key={i} style={{display:'grid',gridTemplateColumns:'36px 110px 60px 1fr 30px',gap:6,alignItems:'center'}}>
+                <input type="color" value={it.color} onChange={e=>updateDraftItem(i,'color',e.target.value)} style={{width:36,height:30,border:'1px solid #ddd',borderRadius:4,padding:1,cursor:'pointer'}}/>
+                <input value={it.label} onChange={e=>updateDraftItem(i,'label',e.target.value)} placeholder="종목명" style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                <input type="number" value={it.pct} onChange={e=>updateDraftItem(i,'pct',e.target.value)} placeholder="%" min={0} max={100} style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem',textAlign:'right'}}/>
+                <input value={it.desc} onChange={e=>updateDraftItem(i,'desc',e.target.value)} placeholder="투자 근거 (간단히)" style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                <button onClick={()=>removeDraftItem(i)} style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'1rem'}}>×</button>
+              </div>
+            ))}
+          </div>
+          <button onClick={addDraftItem} style={{fontSize:'0.78rem',padding:'5px 12px',background:'#fff',border:'1px dashed #999',borderRadius:6,cursor:'pointer',marginBottom:14}}>+ 종목 추가</button>
+          <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <button onClick={cancelEdit} style={{fontSize:'0.8rem',padding:'7px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer'}}>취소</button>
+            <button onClick={saveEdit} style={{fontSize:'0.8rem',padding:'7px 16px',background:'#1B5E20',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:600}}>저장</button>
+          </div>
+        </div>
+      ) : (
+        <p style={{fontSize:'0.83rem',color:'var(--sub)',lineHeight:1.7,marginBottom:28,maxWidth:640,padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
+          {portfolio.thesis}
+        </p>
+      )}
+
+      {/* ─── 차트 + 종목 리스트 ─── */}
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'start'}}>
-        {/* 도넛 차트 */}
         <div style={{position:'relative'}}>
           <div style={{position:'relative',width:'100%',height:280}}>
             <canvas ref={canvasRef} role="img" aria-label="포트폴리오 도넛 차트"/>
@@ -224,9 +852,8 @@ function InvestPortfolio() {
             </div>
           </div>
         </div>
-        {/* 종목 리스트 */}
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          {PORTFOLIO.items.map((item,i)=>(
+          {portfolio.items.map((item,i)=>(
             <div key={i}
               onMouseEnter={()=>{ setHovered(i); if(chartRef.current){chartRef.current.data.datasets[0].hoverOffset=12;chartRef.current.update();} }}
               onMouseLeave={()=>{ setHovered(null); if(chartRef.current){chartRef.current.update();} }}
@@ -241,10 +868,80 @@ function InvestPortfolio() {
               </div>
             </div>
           ))}
+          {total !== 100 && (
+            <div style={{fontSize:'0.7rem',color:'#e65100',marginTop:4,padding:'4px 8px',background:'#fff3e0',borderRadius:4}}>
+              ⚠️ 비율 합계: {total}% (100%가 아닙니다)
+            </div>
+          )}
         </div>
       </div>
-      <div style={{marginTop:20,fontSize:'0.68rem',color:'#bbb',borderTop:'1px solid var(--border)',paddingTop:10}}>
-        ⚠️ 투자 참고용 포트폴리오입니다. 실제 투자 결정은 본인의 판단으로 하세요.
+
+      {/* ─── 내 보유 종목 (매수 기록 + 현재가 수동 입력) ─── */}
+      <MyHoldings />
+
+      {/* ─── 일일 시장 메모 ─── */}
+      <div style={{marginTop:36,padding:'20px 0',borderTop:'1px solid var(--border)'}}>
+        <h3 style={{fontSize:'1.05rem',fontWeight:700,marginBottom:4,color:'#1B5E20'}}>📝 일일 시장 메모</h3>
+        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>매일의 시장 관찰·결정·복기를 기록합니다. 좋은 투자자는 자기만의 일지를 씁니다.</p>
+        <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+          <input type="date" value={noteDate} onChange={e=>setNoteDate(e.target.value)} style={{padding:'7px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.82rem'}}/>
+          <textarea
+            value={noteText}
+            onChange={e=>setNoteText(e.target.value)}
+            placeholder="오늘 시장에서 무엇을 봤고, 어떤 결정을 했고, 무엇을 배웠는지..."
+            rows={3}
+            style={{flex:1,minWidth:240,padding:'7px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.85rem',fontFamily:'inherit',resize:'vertical'}}/>
+          <button onClick={saveNote} disabled={noteSaving||!noteText.trim()} style={{padding:'7px 16px',background:noteText.trim()?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:noteText.trim()?'pointer':'not-allowed',fontWeight:600,fontSize:'0.85rem',alignSelf:'flex-start'}}>
+            {noteSaving?'저장중...':'저장'}
+          </button>
+        </div>
+        {notes.length === 0 ? (
+          <div style={{fontSize:'0.8rem',color:'var(--muted)',padding:'14px',background:'#fafafa',borderRadius:8,textAlign:'center'}}>아직 메모가 없습니다. 오늘의 첫 메모를 남겨보세요.</div>
+        ) : (
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {notes.map(n=>(
+              <div key={n.id} style={{padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                  <span style={{fontSize:'0.72rem',fontWeight:700,color:'#827717'}}>{n.date}</span>
+                  <button onClick={()=>delNote(n.id)} style={{background:'transparent',border:'none',color:'#999',cursor:'pointer',fontSize:'0.9rem'}}>×</button>
+                </div>
+                <div style={{fontSize:'0.85rem',color:'var(--text)',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{n.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ─── 주간 리밸런싱 체크리스트 ─── */}
+      <div style={{marginTop:36,padding:'20px 0',borderTop:'1px solid var(--border)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4,flexWrap:'wrap'}}>
+          <h3 style={{fontSize:'1.05rem',fontWeight:700,color:'#1B5E20'}}>✅ 주간 리밸런싱 체크리스트</h3>
+          <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>이번 주 ({weekStart}~) · {checkedCount}/{rebItems.length}</span>
+          {isSunday && <span style={{fontSize:'0.7rem',background:'#fff3e0',color:'#e65100',padding:'3px 10px',borderRadius:20,fontWeight:600}}>🔔 일요일 — 리밸런싱 점검일</span>}
+        </div>
+        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>월요일에 자동으로 체크가 초기화됩니다. 사용자 추가 항목은 다음 주에도 유지됩니다.</p>
+        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:14}}>
+          {rebItems.map((it,i)=>(
+            <label key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:rebChecks[i]?'#e8f5e9':'#fafafa',borderRadius:6,cursor:'pointer',transition:'background 0.15s'}}>
+              <input type="checkbox" checked={!!rebChecks[i]} onChange={()=>toggleCheck(i)} style={{width:16,height:16,cursor:'pointer'}}/>
+              <span style={{flex:1,fontSize:'0.85rem',color:rebChecks[i]?'#888':'var(--text)',textDecoration:rebChecks[i]?'line-through':'none'}}>{it.text}</span>
+              {it.custom && <button onClick={(e)=>{e.preventDefault();removeRebItem(i);}} style={{background:'transparent',border:'none',color:'#999',cursor:'pointer',fontSize:'0.9rem'}}>×</button>}
+            </label>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <input
+            value={rebAddText}
+            onChange={e=>setRebAddText(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addRebItem();}}}
+            placeholder="나만의 체크 항목 추가..."
+            style={{flex:1,padding:'7px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.82rem'}}/>
+          <button onClick={addRebItem} disabled={!rebAddText.trim()} style={{padding:'7px 14px',background:rebAddText.trim()?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:rebAddText.trim()?'pointer':'not-allowed',fontWeight:600,fontSize:'0.82rem'}}>추가</button>
+        </div>
+      </div>
+
+      <div style={{marginTop:24,fontSize:'0.68rem',color:'#bbb',borderTop:'1px solid var(--border)',paddingTop:10}}>
+        ⚠️ 투자 참고용 포트폴리오입니다. 실제 투자 결정은 본인의 판단으로 하세요. 매일의 메모와 주간 점검이 장기 수익률을 만듭니다.
       </div>
     </div>
   );
