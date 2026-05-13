@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ⚠️  【필수】 아래 두 줄을 본인의 Supabase 실제 값으로 교체하세요
 // Supabase 대시보드 → Settings → API 에서 확인
 const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co"; // ← 실제 Project URL
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE"; // ← 실제 anon public key
+const SUPA_KEY = "YeyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE"; // ← 실제 anon public key
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
@@ -1658,7 +1658,7 @@ export default function App() {
   const [modal,setModal]      = useState(null);
   const [editing,setEditing]  = useState(null);
   const [loading,setLoading]  = useState(true);
-  const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
+  const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});
   const [prForm,setPrForm]    = useState({...DEF_PROFILE});
   // Calendar state
   const [calEvents,setCalEvents] = useState({});
@@ -1779,11 +1779,21 @@ export default function App() {
   }, []);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
-  const savePost = async () => {
+  // 임시저장(draft) / 정식저장(published) 두 가지 모드
+  const requestSavePost = (asDraft) => {
+    if(!form.title) return;
+    setConfirmAction({type: asDraft?'saveDraft':'savePost', data:{asDraft}});
+  };
+  const savePost = async (asDraft=false) => {
     const today=new Date().toISOString().slice(0,10);
+    // images가 있으면 img는 대표 이미지로 동기화 (옛 카드뷰 호환)
+    const main = (form.images && form.images.length>0)
+      ? (form.images[form.mainIdx] || form.images[0])
+      : form.img;
+    const status = asDraft ? 'draft' : 'published';
     const newPost = editing
-      ? {...posts.find(p=>p.id===editing.id), ...form}
-      : {id:Date.now(),...form,date:today};
+      ? {...posts.find(p=>p.id===editing.id), ...form, img: main, status}
+      : {id:Date.now(),...form,img:main,date:today,status};
     const u = editing
       ? posts.map(p=>p.id===editing.id?newPost:p)
       : [newPost,...posts];
@@ -1791,7 +1801,12 @@ export default function App() {
     // Supabase 저장
     await dbUpsert("dlwns_posts", { post_id: newPost.id, owner: OWNER_ID, data: newPost });
     setModal(null); setEditing(null);
-    setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
+    setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});
+  };
+  const confirmSave = () => {
+    const asDraft = confirmAction.data.asDraft;
+    setConfirmAction(null);
+    savePost(asDraft);
   };
   const delPost = async (id) => {
     const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u;
@@ -1916,7 +1931,7 @@ export default function App() {
   const confirmDelete = () => { delPost(confirmAction.data.id); setConfirmAction(null); };
   const openEdit = p => {
     setEditing(p);
-    setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",images:p.images||[],pinned:p.pinned||false,videoUrl:p.videoUrl||""});
+    setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",images:p.images||[],pinned:p.pinned||false,videoUrl:p.videoUrl||"",mainIdx:Number.isInteger(p.mainIdx)?p.mainIdx:0});
     setModal('write');
   };
   const saveProfile = async () => {
@@ -1927,15 +1942,17 @@ export default function App() {
   const handleImg = async e => {
     const files = Array.from(e.target.files);
     if(!files.length) return;
-    if(form.subcat === 'photo' || form.cat === 'baseball') {
-      // 오늘의 사진 & 야구: 여러 장
-      const newImgs = await Promise.all(files.map(f=>toB64(f)));
-      setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
-    } else {
-      // 다른 카테고리: 대표 이미지 1장
-      const b64 = await toB64(files[0]);
-      setForm(prev=>({...prev, img:b64}));
-    }
+    // 모든 카테고리에서 다중 이미지 지원 (음악 제외 - 음악은 별도 폼이라 영향 없음)
+    const newImgs = await Promise.all(files.map(f=>toB64(f)));
+    setForm(prev=>{
+      const merged = [...(prev.images||[]), ...newImgs];
+      // 옛 img 단일 필드는 호환을 위해 첫 사진으로 갱신
+      const mIdx = Number.isInteger(prev.mainIdx) ? prev.mainIdx : 0;
+      const main = merged[mIdx] || merged[0] || '';
+      return {...prev, images: merged, img: main};
+    });
+    // 같은 파일 다시 선택 가능하도록 input 리셋
+    e.target.value = '';
   };
   const handleAvatar = async e => {
     const f=e.target.files[0]; if(!f)return;
@@ -1950,7 +1967,10 @@ export default function App() {
   const isAll = activeCat==="all";
   const catInfo = CAT[activeCat];
   const subcats = !isAll ? SUBCATS[activeCat]||[] : [];
-  const catFiltered = isAll ? posts : posts.filter(p=>p.cat===activeCat);
+  // 임시저장 글은 메인 피드/카테고리에서 숨김 (편집/이어쓰기 용도로만)
+  const publicPosts = posts.filter(p => p.status !== 'draft');
+  const drafts      = posts.filter(p => p.status === 'draft');
+  const catFiltered = isAll ? publicPosts : publicPosts.filter(p=>p.cat===activeCat);
   const filtered = activeSub==="all" ? catFiltered : catFiltered.filter(p=>p.subcat===activeSub);
   const pinned = isAll ? (filtered.find(p=>p.pinned)||filtered[0]) : null;
   const rest = pinned ? filtered.filter(p=>p!==pinned) : filtered;
@@ -1964,6 +1984,15 @@ export default function App() {
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
   // ── Video render helper ─────────────────────────────────────────────────────
+  // 대표 이미지 헬퍼: 새 글은 images[mainIdx] || images[0], 옛 글은 img
+  const mainImg = (p) => {
+    if(p.images && p.images.length > 0){
+      const idx = Number.isInteger(p.mainIdx) ? p.mainIdx : 0;
+      return p.images[idx] || p.images[0] || '';
+    }
+    return p.img || '';
+  };
+
   const renderVideo = (post) => {
     const v = parseVideoUrl(post.videoUrl);
     if(!v) return null;
@@ -2045,7 +2074,7 @@ export default function App() {
               </>
             )}
           </div>
-          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
+          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 글쓰기</button>
         </div>
       </div>
     </header>
@@ -2063,14 +2092,28 @@ export default function App() {
             <button className="btn-del-sm" onClick={()=>requestDelete(detail.id,detail.title)}>삭제</button>
           </div>
           {detail.videoUrl && renderVideo(detail)}
-          {/* 야구 or 오늘의 사진: 대형 그리드 */}
-          {(detail.cat==='baseball' || detail.subcat==='photo') && (detail.images||[]).length>0 ? (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12,marginBottom:24}}>
-              {(detail.images||[]).map((src,i)=>(
-                <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,display:'block'}}/>
-              ))}
-            </div>
-          ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
+          {/* 이미지 표시: images 배열이 있으면 그리드, 없으면 단일 img 호환 */}
+          {(() => {
+            const imgs = (detail.images && detail.images.length > 0) ? detail.images : (detail.img ? [detail.img] : []);
+            if(imgs.length === 0) return null;
+            // 대표 사진을 맨 앞으로
+            const mIdx = Number.isInteger(detail.mainIdx) ? detail.mainIdx : 0;
+            const ordered = imgs.length > 1
+              ? [imgs[mIdx], ...imgs.filter((_,i)=>i!==mIdx)]
+              : imgs;
+            if(ordered.length === 1){
+              // 사진 한 장: 화면 가득 (기존 detail-img 스타일과 동일하게)
+              return <img className="detail-img" src={ordered[0]} alt=""/>;
+            }
+            // 여러 장: 4분할 그리드 (한 장당 화면의 25%)
+            return (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:8,marginBottom:24}}>
+                {ordered.map((src,i)=>(
+                  <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'1/1',objectFit:'cover',borderRadius:6,display:'block'}}/>
+                ))}
+              </div>
+            );
+          })()}
           <div className="detail-body">
             {(detail.body||detail.summary).split('\n').map((line,i)=>(
               line.trim()==='' ? <br key={i}/> : <p key={i} style={{margin:0,minHeight:'1.4em'}}>{line}</p>
@@ -2149,7 +2192,7 @@ export default function App() {
             <div className="hero-content">
               <h1>이준 기록집</h1>
               <div className="hero-actions" style={{marginTop:24}}>
-                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>{'+ 새 글 작성'}</button>
+                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>{'+ 새 글 작성'}</button>
                 <button className="btn btn-lg btn-outline-white" onClick={()=>{
                   setShowAllMode(true);
                   setTimeout(()=>{
@@ -2196,6 +2239,17 @@ export default function App() {
                   </div>
                 </div>
               )}
+              <div className="cat-stat" style={{cursor:'pointer'}}
+                   onClick={()=>{
+                     setEditing(null);
+                     setForm({title:"",summary:"",cat:activeCat==='invest'?"insight":activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});
+                     setModal('write');
+                   }}>
+                <div>
+                  <div className="cat-stat-num" style={{color:catInfo.color,fontSize:'1.6rem'}}>+</div>
+                  <div className="cat-stat-label">글쓰기</div>
+                </div>
+              </div>
             </div>
             {/* ── 서브카테고리 탭 ── */}
             {subcats.length>0&&(
@@ -2331,7 +2385,7 @@ export default function App() {
                         <div className="posts-grid">
                           {grouped[date].map(p=>(
                             <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
-                              <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
+                              <div className="pc-thumb">{mainImg(p)?<img src={mainImg(p)} alt=""/>:EMO[p.cat]}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
                               <div className="pc-body">
                                 <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
                                 <div className="pc-title">{p.title}</div>
@@ -2366,9 +2420,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="featured-img">
-                      {pinned.subcat==='photo'&&(pinned.images||[]).length>0?(
-                        <img src={pinned.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                      ):pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}
+                      {mainImg(pinned)?<img src={mainImg(pinned)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:EMO[pinned.cat]}
                       {pinned.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                   </div>
@@ -2378,7 +2430,7 @@ export default function App() {
                     {rest.map(p=>(
                       <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
                         <div className="pc-thumb">
-                          {p.img?<img src={p.img} alt=""/>:EMO[p.cat]}
+                          {mainImg(p)?<img src={mainImg(p)} alt=""/>:EMO[p.cat]}
                           {p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                         </div>
                         <div className="pc-body">
@@ -2521,7 +2573,7 @@ export default function App() {
                     <div className="empty-icon">🎵</div>
                     <div className="empty-title">플레이리스트가 비어있어요</div>
                     <div className="empty-desc">유튜브 링크와 함께 음악을 추가해보세요!</div>
-                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 음악 추가</button>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 음악 추가</button>
                   </div>
                 )}
               </div>
@@ -2533,13 +2585,9 @@ export default function App() {
                     {filtered.map(p=>(
                       <div key={p.id} className="post-card" onClick={()=>navToPost(p)} style={{overflow:'hidden'}}>
                         {/* 야구: 첫 사진을 1/3 비율로 크게 */}
-                        {(p.images||[]).length>0 ? (
+                        {mainImg(p) ? (
                           <div style={{aspectRatio:'3/2',overflow:'hidden',background:'#111'}}>
-                            <img src={p.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                          </div>
-                        ) : p.img ? (
-                          <div style={{aspectRatio:'3/2',overflow:'hidden'}}>
-                            <img src={p.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                            <img src={mainImg(p)} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                           </div>
                         ) : (
                           <div style={{aspectRatio:'3/2',background:'#1565C022',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'3rem'}}>⚾</div>
@@ -2565,7 +2613,7 @@ export default function App() {
                     <div className="empty-icon">⚾</div>
                     <div className="empty-title">야구 기록이 없어요</div>
                     <div className="empty-desc">직관 사진과 함께 야구 기록을 남겨보세요!</div>
-                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 야구 기록 추가</button>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 야구 기록 추가</button>
                   </div>
                 )}
               </div>
@@ -2574,7 +2622,7 @@ export default function App() {
                 {filtered.map(p=>(
                   <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
                     <div className="pc-thumb">
-                      {p.img?<img src={p.img} alt=""/>:EMO[p.cat]}
+                      {mainImg(p)?<img src={mainImg(p)} alt=""/>:EMO[p.cat]}
                       {p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                     <div className="pc-body">
@@ -2599,7 +2647,7 @@ export default function App() {
                   {activeSub!=="all" ? `${subcats.find(s=>s.id===activeSub)?.label} 글이 아직 없어요` : `아직 ${catInfo?.label}에 글이 없어요`}
                 </div>
                 <div className="empty-desc">첫 번째 글을 작성해보세요!</div>
-                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 첫 글 작성하기</button>
+                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 첫 글 작성하기</button>
               </div>
             )
           )}
@@ -2684,6 +2732,22 @@ export default function App() {
               <button className="btn" style={{padding:'8px 14px',fontSize:'0.8rem',background:'var(--red)',color:'#fff'}} onClick={confirmDelete}>삭제하기</button>
             </div>
           </>}
+          {confirmAction.type==='savePost'&&<>
+            <div className="confirm-modal-title">💾 글 저장</div>
+            <div className="confirm-modal-desc">이 글을 저장하시겠습니까?<br/><b>"{form.title}"</b><br/><span style={{fontSize:'0.78rem',color:'var(--muted)'}}>저장하면 모든 사람에게 공개됩니다.</span></div>
+            <div className="confirm-modal-btns">
+              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
+              <button className="btn btn-primary" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={confirmSave}>저장하기</button>
+            </div>
+          </>}
+          {confirmAction.type==='saveDraft'&&<>
+            <div className="confirm-modal-title">🗒️ 임시 저장</div>
+            <div className="confirm-modal-desc">이 글을 임시저장하시겠습니까?<br/><b>"{form.title}"</b><br/><span style={{fontSize:'0.78rem',color:'var(--muted)'}}>임시저장 글은 공개되지 않으며, 글쓰기 모달에서 이어쓸 수 있습니다.</span></div>
+            <div className="confirm-modal-btns">
+              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
+              <button className="btn btn-primary" style={{padding:'8px 14px',fontSize:'0.8rem',background:'#827717',borderColor:'#827717'}} onClick={confirmSave}>임시저장</button>
+            </div>
+          </>}
           {confirmAction.type==='calDel'&&<>
             <div className="confirm-modal-title">🗓 일정 삭제</div>
             <div className="confirm-modal-desc">이 일정을 삭제하시겠습니까?</div>
@@ -2766,6 +2830,22 @@ export default function App() {
           {/* ── 일반 글쓰기 폼 ── */}
             <div className="modal-head"><div className="modal-title">{editing?'글 수정':'새 글 작성'}</div><button className="modal-x" onClick={()=>setModal(null)}>✕</button></div>
             <div className="modal-body">
+              {/* 임시저장 알림 (수정 모드 아닐 때만) */}
+              {!editing && drafts.length > 0 && (
+                <div style={{background:'#fffde7',border:'1px solid #fbc02d',borderRadius:8,padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                  <span style={{fontSize:'0.82rem',color:'#5d4037',flex:1,minWidth:200}}>🗒️ 임시저장 글 <b>{drafts.length}개</b>가 있습니다. 이어쓰시겠습니까?</span>
+                  <select style={{padding:'5px 8px',fontSize:'0.78rem',border:'1px solid #ddd',borderRadius:5,maxWidth:240}} onChange={e=>{
+                    const v = e.target.value;
+                    if(!v) return;
+                    const d = drafts.find(p=>String(p.id)===v);
+                    if(d){ openEdit(d); }
+                    e.target.value = '';
+                  }}>
+                    <option value="">— 이어쓸 글 선택 —</option>
+                    {drafts.map(d=><option key={d.id} value={d.id}>{d.title || '(제목 없음)'} · {d.date}</option>)}
+                  </select>
+                </div>
+              )}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 <div className="fg"><label>카테고리</label>
                   <select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
@@ -2780,36 +2860,49 @@ export default function App() {
               </div>
               <div className="fg"><label>제목</label><input type="text" value={form.title} placeholder="제목을 입력하세요" onChange={e=>setForm({...form,title:e.target.value})}/></div>
               <div className="fg"><label>요약</label><textarea rows={2} value={form.summary} placeholder="한 줄 요약" onChange={e=>setForm({...form,summary:e.target.value})}/></div>
-              <div className="fg"><label>본문</label><textarea rows={5} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
-              {(form.cat==='inspiration') && (
-                <div className="fg">
-                  <label>영상 URL (유튜브 / 쇼츠 / 인스타 릴스)</label>
-                  <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
-                  <div className="video-hint">유튜브, 유튜브 쇼츠, 인스타그램 릴스 링크를 입력하세요</div>
-                </div>
-              )}
               <div className="fg">
-                <label>대표 이미지</label>
+                <label>유튜브 영상 링크 (선택)</label>
+                <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 쇼츠/인스타 릴스" onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
+                <div className="video-hint">입력하면 글 본문 위에 영상이 임베드되어 바로 재생 가능합니다.</div>
+              </div>
+              <div className="fg">
+                <label>사진 (여러 장 가능 · 대표 사진은 별표 ⭐로 선택)</label>
                 <div style={{display:'flex',gap:10,alignItems:'center'}}>
                   <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>
-                    {(form.subcat==="photo"||form.cat==="baseball")?"사진 여러 장 선택":"파일 선택"}
+                    + 사진 추가
                   </button>
-                  {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
+                  {(form.images||[]).length>0 && <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{form.images.length}장 · 대표 #{(form.mainIdx||0)+1}</span>}
                 </div>
-                {(form.subcat==='photo'||form.cat==='baseball')&&(form.images||[]).length>0&&(
+                {(form.images||[]).length>0 && (
                   <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
-                    {(form.images||[]).map((src,i)=>(
-                      <div key={i} style={{position:'relative'}}>
-                        <img src={src} alt="" style={{width:'100%',height:70,objectFit:'cover',borderRadius:4,display:'block'}}/>
-                        <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
-                          style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:18,height:18,fontSize:'0.6rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-                      </div>
-                    ))}
+                    {form.images.map((src,i)=>{
+                      const isMain = i === (form.mainIdx||0);
+                      return (
+                        <div key={i} style={{position:'relative',border:isMain?'2px solid #FFB300':'2px solid transparent',borderRadius:6,overflow:'hidden'}}>
+                          <img src={src} alt="" style={{width:'100%',height:80,objectFit:'cover',display:'block'}}/>
+                          {/* 대표 사진 별표 */}
+                          <button onClick={()=>setForm(prev=>({...prev,mainIdx:i}))}
+                            title={isMain?'대표 사진':'대표 사진으로 설정'}
+                            style={{position:'absolute',top:2,left:2,background:isMain?'#FFB300':'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:22,height:22,fontSize:'0.7rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
+                            {isMain?'★':'☆'}
+                          </button>
+                          {/* 삭제 */}
+                          <button onClick={()=>setForm(prev=>{
+                            const nextImgs = prev.images.filter((_,j)=>j!==i);
+                            let nextMain = prev.mainIdx||0;
+                            if(i === nextMain) nextMain = 0;
+                            else if(i < nextMain) nextMain -= 1;
+                            return {...prev,images:nextImgs,mainIdx:Math.max(0,Math.min(nextMain,nextImgs.length-1))};
+                          })}
+                            style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:20,height:20,fontSize:'0.65rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
-                {(form.subcat!=='photo'&&form.cat!=='baseball')&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
-                <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'||form.cat==='baseball'} style={{display:'none'}} onChange={handleImg}/>
+                <input ref={imgRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={handleImg}/>
               </div>
+              <div className="fg"><label>본문</label><textarea rows={6} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
               <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
                 <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
                 <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.83rem'}}>대표 글로 고정 (전체 페이지)</label>
@@ -2817,7 +2910,8 @@ export default function App() {
             </div>
             <div className="modal-foot">
               <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
-              <button className="btn btn-primary" onClick={savePost} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
+              <button className="btn btn-outline" onClick={()=>requestSavePost(true)} disabled={!form.title} style={{opacity:form.title?1:0.4,borderColor:'#827717',color:'#827717'}}>🗒️ 임시저장</button>
+              <button className="btn btn-primary" onClick={()=>requestSavePost(false)} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
             </div>
           </>)}
 
