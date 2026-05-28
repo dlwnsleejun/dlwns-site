@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ⚠️  【필수】 아래 두 줄을 본인의 Supabase 실제 값으로 교체하세요
 // Supabase 대시보드 → Settings → API 에서 확인
 const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co"; // ← 실제 Project URL
-const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE"; // ← 실제 anon public key
+const SUPA_KEY = "sb_publishable_vXdC3qk-Ga0D5I_NnAakfg_SteBGROk"; // ← 실제 anon public key
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
@@ -127,821 +127,344 @@ function getTodayKr() {
 
 // ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
 // Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
-// ─── 투자 포트폴리오 데이터 (매주 업데이트 예정) ─────────────────────────────
-// Last updated: 2026-05-08
-const PORTFOLIO = {
-  updatedAt: "2026년 5월 8일",
+// ─── 투자 포트폴리오 기본 데이터 (원화 기준, Supabase에 없을 때 fallback) ─────
+const DEFAULT_PORTFOLIO = {
+  updatedAt: "2026년 5월 28일",
   thesis: "AI 인프라 집중 + 글로벌 분산 + 현금 방어. 변동성 높은 시장에서 핵심 성장주는 무게중심을 유지하되, ETF로 리스크를 분산하고 단기 채권으로 현금 흐름을 확보한다.",
   items: [
-    { label:"NVDA",      pct:18, color:"#76b900", desc:"AI 인프라 왕. 데이터센터 GPU 독점적 지위 — 사이클 최정점에서도 해자가 가장 뚜렷한 단일종목" },
-    { label:"QQQ",       pct:15, color:"#0052CC", desc:"나스닥 100 ETF. 빅테크 전체에 베팅하면서 개별종목 리스크 분산. 장기 복리의 핵심 엔진" },
-    { label:"MSFT",      pct:12, color:"#00a4ef", desc:"Azure + Copilot 조합. 클라우드·AI 양쪽 다 먹는 현금창출 기계. 가장 안정적인 성장주" },
-    { label:"AMZN",      pct:10, color:"#FF9900", desc:"AWS 재가속 + 광고 성장. 소매 마진 개선 사이클 진입 — 지금이 가장 저평가된 빅테크" },
-    { label:"VOO",       pct:12, color:"#1565C0", desc:"S&P500 ETF. 시장 전체를 저비용으로 소유. 나머지 포지션의 변동성을 완충하는 앵커" },
-    { label:"PLTR",      pct:8,  color:"#8c1aff", desc:"정부·기업 AI 데이터 플랫폼. 흑자 전환 후 성장 가속. 가장 높은 업사이드가 남은 중형주" },
-    { label:"BRK.B",     pct:8,  color:"#8B6914", desc:"버핏의 포트폴리오를 통째로 소유. 하락장 방어 + 복리 기계. 현금보다 낫다" },
-    { label:"단기채권/예금",pct:17, color:"#78909C", desc:"SHV(초단기 국채 ETF) + 예금. 연 5% 수익 확보하며 기회 올 때 즉시 투입할 실탄 유지" },
+    { label:"NVDA",       krw:1800000, color:"#76b900", desc:"AI 인프라 왕. 데이터센터 GPU 독점적 지위" },
+    { label:"QQQ",        krw:1500000, color:"#0052CC", desc:"나스닥 100 ETF. 빅테크 전체에 베팅하며 개별종목 리스크 분산" },
+    { label:"MSFT",       krw:1200000, color:"#00a4ef", desc:"Azure + Copilot. 클라우드·AI 양쪽 다 먹는 현금창출 기계" },
+    { label:"VOO",        krw:1200000, color:"#1565C0", desc:"S&P500 ETF. 나머지 포지션의 변동성을 완충하는 앵커" },
+    { label:"AMZN",       krw:1000000, color:"#FF9900", desc:"AWS 재가속 + 광고 성장. 소매 마진 개선 사이클 진입" },
+    { label:"PLTR",       krw:800000,  color:"#8c1aff", desc:"정부·기업 AI 데이터 플랫폼. 흑자 전환 후 성장 가속" },
+    { label:"BRK.B",      krw:800000,  color:"#8B6914", desc:"버핏의 포트폴리오를 통째로 소유. 하락장 방어 + 복리 기계" },
+    { label:"단기채권/예금", krw:1700000, color:"#78909C", desc:"SHV + 예금. 기회 올 때 즉시 투입할 실탄" },
   ]
 };
 
-// ─── 리밸런싱 체크리스트 기본 항목 ─────────────────────────────────────────────
-const DEFAULT_REBALANCE_ITEMS = [
-  "보유 종목 중 -10% 이상 하락한 종목 점검",
-  "보유 종목 중 +20% 이상 상승한 종목 익절 여부 검토",
-  "이번 주 빅테크 실적 발표 일정 확인 (NVDA, MSFT, AMZN 등)",
-  "이번 주 FOMC / 주요 경제 지표 발표 일정 확인 (CPI, PCE, 고용)",
-  "포트폴리오 비율이 목표 대비 ±3%p 이상 어긋났는지 확인",
-  "현금/단기채권 비중이 15% 이상 유지되는지 확인",
-  "추가 매수할 종목이 있다면 그 근거(테마/실적/밸류에이션) 정리",
-  "지난 주 일일 메모를 다시 읽고 의사결정 패턴 복기",
-  "다음 주 환율(USD/KRW), 유가, 금리 흐름 체크",
-];
-
-// 주 시작일 (월요일) 구하기
-function getWeekStart(d = new Date()) {
-  const day = d.getDay();
-  const diff = (day === 0 ? -6 : 1 - day);
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + diff);
-  return monday.toISOString().slice(0, 10);
-}
-
-// ─── 내 보유 종목 (매수 기록 + 현재가 수동 입력 + 가격 히스토리) ─────────────
-function MyHoldings() {
-  // ── 상태 ──
-  const [trades, setTrades]       = useState([]);   // 매수 거래 목록
-  const [prices, setPrices]       = useState([]);   // 가격 히스토리 (모든 날짜의 모든 종목)
-  const [loaded, setLoaded]       = useState(false);
-
-  // ── 모달 상태 ──
-  const [tradeModal, setTradeModal] = useState(null); // null | {mode:'add'|'edit', data}
-  const [priceModal, setPriceModal] = useState(null); // null | {ticker, date, price}
-  const [expanded, setExpanded]     = useState({});   // { ticker: bool }
-
-  // 초기 로드
-  useEffect(()=>{
-    (async ()=>{
-      try{
-        const tr = await dbGetAll('dlwns_holdings', `owner=eq.${OWNER_ID}`);
-        if(tr) setTrades(tr.map(r=>r.data).filter(Boolean));
-      } catch(e){ console.warn('trades load fail', e); }
-      try{
-        const pr = await dbGetAll('dlwns_prices', `owner=eq.${OWNER_ID}`);
-        if(pr) setPrices(pr.map(r=>r.data).filter(Boolean));
-      } catch(e){ console.warn('prices load fail', e); }
-      setLoaded(true);
-    })();
-  },[]);
-
-  // ── 매수 거래 CRUD ──
-  const saveTrade = async (data, isEdit) => {
-    const id = isEdit ? data.id : Date.now();
-    const payload = {
-      trade_id: id,
-      owner: OWNER_ID,
-      data: {
-        id,
-        ticker: data.ticker.trim().toUpperCase(),
-        buyDate: data.buyDate,
-        buyPrice: Number(data.buyPrice),
-        quantity: Number(data.quantity),
-        note: (data.note || '').trim(),
-      }
-    };
-    const r = await dbUpsert('dlwns_holdings', payload);
-    if(r){
-      if(isEdit){
-        setTrades(trades.map(t=>t.id===id?payload.data:t));
-      } else {
-        setTrades([...trades, payload.data]);
-      }
-      setTradeModal(null);
-    } else {
-      alert('매수 기록 저장 실패. dlwns_holdings 테이블이 생성되었는지 확인하세요.');
-    }
-  };
-  const delTrade = async (id) => {
-    if(!confirm('이 매수 기록을 삭제할까요?')) return;
-    const ok = await dbDelete('dlwns_holdings', `trade_id=eq.${id}`);
-    if(ok) setTrades(trades.filter(t=>t.id!==id));
-  };
-
-  // ── 가격 기록 (현재가 입력) ──
-  // 같은 종목+같은 날짜는 덮어쓰기. price_id는 hash(ticker+date)로 고정 (간단히 ticker_date 기반)
-  const savePrice = async ({ticker, date, price}) => {
-    if(!ticker || !date || !price) return;
-    const tk = ticker.trim().toUpperCase();
-    const priceNum = Number(price);
-    // (ticker, date) 조합으로 ID 생성 — 같은 날 재입력 시 덮어쓰기
-    const idStr = `${tk}_${date.replace(/-/g,'')}`;
-    // bigint로 변환: 영문은 charCode 합산, 숫자는 그대로 → 안전한 양의 정수
-    let id = 0;
-    for(let i=0; i<idStr.length; i++){ id = (id * 31 + idStr.charCodeAt(i)) % Number.MAX_SAFE_INTEGER; }
-    const payload = {
-      price_id: id,
-      owner: OWNER_ID,
-      data: { ticker: tk, date, price: priceNum }
-    };
-    const r = await dbUpsert('dlwns_prices', payload);
-    if(r){
-      // 기존 동일 (ticker,date) 제거 후 추가
-      const filtered = prices.filter(p=>!(p.ticker===tk && p.date===date));
-      setPrices([...filtered, payload.data]);
-      setPriceModal(null);
-    } else {
-      alert('가격 저장 실패. dlwns_prices 테이블이 생성되었는지 확인하세요.');
-    }
-  };
-
-  // ── 종목별 집계 ──
-  // trades를 ticker별로 묶기
-  const byTicker = {};
-  trades.forEach(t=>{
-    if(!byTicker[t.ticker]) byTicker[t.ticker] = { ticker:t.ticker, trades:[], totalQty:0, totalCost:0 };
-    byTicker[t.ticker].trades.push(t);
-    byTicker[t.ticker].totalQty  += t.quantity;
-    byTicker[t.ticker].totalCost += t.buyPrice * t.quantity;
-  });
-
-  // 각 ticker별 최신 가격
-  const latestPrice = (ticker) => {
-    const arr = prices.filter(p=>p.ticker===ticker).sort((a,b)=>b.date.localeCompare(a.date));
-    return arr[0] || null;
-  };
-
-  // 가격 히스토리 (해당 ticker, 날짜 오름차순)
-  const priceHistory = (ticker) =>
-    prices.filter(p=>p.ticker===ticker).sort((a,b)=>a.date.localeCompare(b.date));
-
-  // 전체 요약
-  let summary = { invested:0, current:0, gain:0, gainPct:0 };
-  Object.values(byTicker).forEach(grp=>{
-    const last = latestPrice(grp.ticker);
-    summary.invested += grp.totalCost;
-    if(last){
-      summary.current += last.price * grp.totalQty;
-    } else {
-      summary.current += grp.totalCost; // 가격 미입력 시 매수가로 간주
-    }
-  });
-  summary.gain = summary.current - summary.invested;
-  summary.gainPct = summary.invested > 0 ? (summary.gain / summary.invested * 100) : 0;
-
-  const gainColor = (v) => v > 0 ? '#c62828' : v < 0 ? '#1565C0' : '#666'; // 한국식: 빨강=상승, 파랑=하락
-  const fmtMoney = (v) => `$${v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
-  const fmtPct   = (v) => `${v>=0?'+':''}${v.toFixed(2)}%`;
-
-  if(!loaded){
-    return <div style={{padding:'40px 0',textAlign:'center',fontSize:'0.85rem',color:'var(--muted)'}}>보유 종목 로딩 중...</div>;
-  }
-
-  const tickers = Object.keys(byTicker).sort();
-
-  return (
-    <div style={{marginTop:36,padding:'20px 0',borderTop:'1px solid var(--border)'}}>
-      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}}>
-        <h3 style={{fontSize:'1.05rem',fontWeight:700,color:'#1B5E20'}}>📊 내 보유 종목</h3>
-        <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{tickers.length}개 종목 · {trades.length}건 매수</span>
-        <button onClick={()=>setTradeModal({mode:'add',data:{ticker:'',buyDate:new Date().toISOString().slice(0,10),buyPrice:'',quantity:'',note:''}})}
-                style={{marginLeft:'auto',fontSize:'0.78rem',padding:'5px 12px',background:'#1B5E20',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:600}}>
-          + 매수 기록
-        </button>
-      </div>
-      <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>매수 내역과 현재가를 직접 입력합니다. 매일 가격을 한 번씩 기록하면 종목별 추이 그래프가 그려집니다.</p>
-
-      {/* ─── 전체 요약 ─── */}
-      {trades.length > 0 && (
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:10,marginBottom:18,padding:'14px 16px',background:'#f1f8e9',borderRadius:10}}>
-          <div>
-            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>총 투자금</div>
-            <div style={{fontSize:'1.05rem',fontWeight:700,color:'var(--text)'}}>{fmtMoney(summary.invested)}</div>
-          </div>
-          <div>
-            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>현재 평가</div>
-            <div style={{fontSize:'1.05rem',fontWeight:700,color:'var(--text)'}}>{fmtMoney(summary.current)}</div>
-          </div>
-          <div>
-            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>평가 손익</div>
-            <div style={{fontSize:'1.05rem',fontWeight:700,color:gainColor(summary.gain)}}>
-              {summary.gain>=0?'+':''}{fmtMoney(summary.gain).replace('$','')}{summary.gain>=0?' $':' $'}
-            </div>
-          </div>
-          <div>
-            <div style={{fontSize:'0.7rem',color:'var(--muted)',marginBottom:2}}>수익률</div>
-            <div style={{fontSize:'1.05rem',fontWeight:700,color:gainColor(summary.gain)}}>{fmtPct(summary.gainPct)}</div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── 종목별 카드 ─── */}
-      {tickers.length === 0 ? (
-        <div style={{fontSize:'0.82rem',color:'var(--muted)',padding:'30px',background:'#fafafa',borderRadius:8,textAlign:'center'}}>
-          아직 매수 기록이 없습니다. 우측 상단 <strong>"+ 매수 기록"</strong> 버튼으로 첫 종목을 추가해보세요.
-        </div>
-      ) : (
-        <div style={{display:'flex',flexDirection:'column',gap:12}}>
-          {tickers.map(tk=>{
-            const grp = byTicker[tk];
-            const avgPrice = grp.totalCost / grp.totalQty;
-            const lp = latestPrice(tk);
-            const cur = lp ? lp.price * grp.totalQty : null;
-            const gain = cur !== null ? (cur - grp.totalCost) : null;
-            const gainPct = cur !== null ? (gain / grp.totalCost * 100) : null;
-            const history = priceHistory(tk);
-            const isExp = !!expanded[tk];
-            return (
-              <div key={tk} style={{border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',background:'#fff'}}>
-                {/* 종목 헤더 */}
-                <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:10}}>
-                  <span style={{fontSize:'1.05rem',fontWeight:800,color:'#1B5E20'}}>{tk}</span>
-                  <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{grp.totalQty}주 · 평단 ${avgPrice.toFixed(2)}</span>
-                  <button onClick={()=>setPriceModal({ticker:tk,date:new Date().toISOString().slice(0,10),price:lp?String(lp.price):''})}
-                          style={{marginLeft:'auto',fontSize:'0.74rem',padding:'4px 10px',background:'#fff',border:'1px solid #1B5E20',color:'#1B5E20',borderRadius:6,cursor:'pointer',fontWeight:600}}>
-                    💵 현재가 입력
-                  </button>
-                </div>
-                {/* 종목 지표 */}
-                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:8,marginBottom:10}}>
-                  <div>
-                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>매수 총액</div>
-                    <div style={{fontSize:'0.88rem',fontWeight:700}}>{fmtMoney(grp.totalCost)}</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>현재가</div>
-                    <div style={{fontSize:'0.88rem',fontWeight:700}}>{lp ? `$${lp.price.toFixed(2)}` : '—'}</div>
-                    {lp && <div style={{fontSize:'0.62rem',color:'var(--muted)'}}>{lp.date}</div>}
-                  </div>
-                  <div>
-                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>평가금</div>
-                    <div style={{fontSize:'0.88rem',fontWeight:700}}>{cur !== null ? fmtMoney(cur) : '—'}</div>
-                  </div>
-                  <div>
-                    <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>손익 / 수익률</div>
-                    {gain !== null ? (
-                      <div style={{fontSize:'0.88rem',fontWeight:700,color:gainColor(gain)}}>
-                        {gain>=0?'+':''}{gain.toFixed(2)} $ · {fmtPct(gainPct)}
-                      </div>
-                    ) : <div style={{fontSize:'0.88rem',color:'var(--muted)'}}>가격 미입력</div>}
-                  </div>
-                </div>
-                {/* 가격 추이 그래프 (간단한 SVG 라인) */}
-                {history.length >= 2 && <PriceSparkline history={history} avgPrice={avgPrice}/>}
-                {history.length === 1 && (
-                  <div style={{fontSize:'0.7rem',color:'var(--muted)',padding:'8px',background:'#fafafa',borderRadius:6,marginTop:4}}>
-                    가격 기록 1개. 매일 한 번씩 입력하면 추이 그래프가 그려집니다.
-                  </div>
-                )}
-                {/* 펼치기: 매수 내역 + 가격 히스토리 */}
-                <button onClick={()=>setExpanded({...expanded,[tk]:!isExp})}
-                        style={{marginTop:8,fontSize:'0.72rem',background:'transparent',border:'none',color:'#1B5E20',cursor:'pointer',padding:0,fontWeight:600}}>
-                  {isExp ? '▲ 접기' : '▼ 매수 내역 / 가격 기록 보기'}
-                </button>
-                {isExp && (
-                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--border)'}}>
-                    <div style={{fontSize:'0.74rem',fontWeight:700,marginBottom:6,color:'var(--sub)'}}>매수 내역 ({grp.trades.length}건)</div>
-                    <div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:12}}>
-                      {grp.trades.sort((a,b)=>a.buyDate.localeCompare(b.buyDate)).map(t=>(
-                        <div key={t.id} style={{display:'flex',gap:8,alignItems:'center',fontSize:'0.75rem',padding:'5px 8px',background:'#fafafa',borderRadius:5}}>
-                          <span style={{color:'var(--muted)'}}>{t.buyDate}</span>
-                          <span style={{fontWeight:600}}>${t.buyPrice.toFixed(2)} × {t.quantity}주</span>
-                          <span style={{color:'var(--muted)'}}>= ${(t.buyPrice*t.quantity).toFixed(2)}</span>
-                          {t.note && <span style={{color:'var(--muted)',fontStyle:'italic',flex:1}}>· {t.note}</span>}
-                          <button onClick={()=>setTradeModal({mode:'edit',data:t})} style={{marginLeft:'auto',background:'transparent',border:'none',color:'#1565C0',cursor:'pointer',fontSize:'0.72rem'}}>수정</button>
-                          <button onClick={()=>delTrade(t.id)} style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'0.88rem'}}>×</button>
-                        </div>
-                      ))}
-                    </div>
-                    {history.length > 0 && (
-                      <>
-                        <div style={{fontSize:'0.74rem',fontWeight:700,marginBottom:6,color:'var(--sub)'}}>가격 기록 ({history.length}일)</div>
-                        <div style={{display:'flex',flexWrap:'wrap',gap:5}}>
-                          {history.slice().reverse().slice(0,30).map((p,i)=>(
-                            <div key={i} style={{fontSize:'0.7rem',padding:'3px 8px',background:'#f1f8e9',borderRadius:4}}>
-                              <span style={{color:'var(--muted)'}}>{p.date}</span> <strong>${p.price.toFixed(2)}</strong>
-                            </div>
-                          ))}
-                          {history.length > 30 && <span style={{fontSize:'0.7rem',color:'var(--muted)'}}>...외 {history.length-30}건</span>}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* ─── 매수 기록 추가/수정 모달 ─── */}
-      {tradeModal && (
-        <TradeModal
-          mode={tradeModal.mode}
-          initial={tradeModal.data}
-          onSave={(data)=>saveTrade(data, tradeModal.mode==='edit')}
-          onClose={()=>setTradeModal(null)}
-        />
-      )}
-
-      {/* ─── 현재가 입력 모달 ─── */}
-      {priceModal && (
-        <PriceModal
-          initial={priceModal}
-          onSave={savePrice}
-          onClose={()=>setPriceModal(null)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─── 가격 추이 sparkline (SVG, 의존성 없음) ──────────────────────────────────
-function PriceSparkline({ history, avgPrice }) {
-  if(history.length < 2) return null;
-  const w = 600, h = 80, padX = 8, padY = 10;
-  const prices = history.map(p=>p.price);
-  const min = Math.min(...prices, avgPrice);
-  const max = Math.max(...prices, avgPrice);
-  const range = max - min || 1;
-  const xAt = (i) => padX + (i/(history.length-1)) * (w - padX*2);
-  const yAt = (v) => padY + (1 - (v-min)/range) * (h - padY*2);
-  const linePath = history.map((p,i)=>`${i===0?'M':'L'}${xAt(i).toFixed(1)},${yAt(p.price).toFixed(1)}`).join(' ');
-  const areaPath = `${linePath} L${xAt(history.length-1).toFixed(1)},${h-padY} L${xAt(0).toFixed(1)},${h-padY} Z`;
-  const lastPrice = prices[prices.length-1];
-  const trendUp = lastPrice >= prices[0];
-  const stroke = trendUp ? '#c62828' : '#1565C0';
-  const fill   = trendUp ? 'rgba(198,40,40,0.08)' : 'rgba(21,101,192,0.08)';
-  const avgY = yAt(avgPrice);
-  return (
-    <div style={{marginTop:6,position:'relative'}}>
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" style={{width:'100%',height:60,display:'block'}}>
-        <path d={areaPath} fill={fill}/>
-        <path d={linePath} stroke={stroke} strokeWidth="2" fill="none"/>
-        <line x1={padX} y1={avgY} x2={w-padX} y2={avgY} stroke="#999" strokeWidth="1" strokeDasharray="4 3"/>
-        <text x={w-padX-2} y={avgY-2} fontSize="10" fill="#666" textAnchor="end">평단 ${avgPrice.toFixed(2)}</text>
-        <circle cx={xAt(history.length-1)} cy={yAt(lastPrice)} r="3" fill={stroke}/>
-      </svg>
-      <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.62rem',color:'var(--muted)',marginTop:2}}>
-        <span>{history[0].date} ${prices[0].toFixed(2)}</span>
-        <span>{history[history.length-1].date} ${lastPrice.toFixed(2)}</span>
-      </div>
-    </div>
-  );
-}
-
-// ─── 매수 기록 모달 ──────────────────────────────────────────────────────────
-function TradeModal({ mode, initial, onSave, onClose }) {
-  const [f, setF] = useState(initial);
-  const valid = f.ticker.trim() && f.buyDate && Number(f.buyPrice) > 0 && Number(f.quantity) > 0;
-  const update = (k,v) => setF({...f,[k]:v});
-  return (
-    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:24,maxWidth:420,width:'100%'}}>
-        <h3 style={{fontSize:'1.05rem',fontWeight:700,marginBottom:14,color:'#1B5E20'}}>{mode==='edit'?'매수 기록 수정':'+ 새 매수 기록'}</h3>
-        <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          <div>
-            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>종목 (티커, 예: NVDA)</label>
-            <input value={f.ticker} onChange={e=>update('ticker',e.target.value.toUpperCase())} autoFocus
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem',textTransform:'uppercase'}}/>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>매수일</label>
-            <input type="date" value={f.buyDate} onChange={e=>update('buyDate',e.target.value)}
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <div>
-              <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>매수가 ($)</label>
-              <input type="number" step="0.01" min="0" value={f.buyPrice} onChange={e=>update('buyPrice',e.target.value)} placeholder="850.50"
-                     style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
-            </div>
-            <div>
-              <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>수량 (주)</label>
-              <input type="number" step="0.0001" min="0" value={f.quantity} onChange={e=>update('quantity',e.target.value)} placeholder="2"
-                     style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
-            </div>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>메모 (선택)</label>
-            <input value={f.note} onChange={e=>update('note',e.target.value)} placeholder="매수 이유..."
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.85rem'}}/>
-          </div>
-          {f.buyPrice && f.quantity && (
-            <div style={{fontSize:'0.78rem',color:'var(--muted)',padding:'6px 10px',background:'#f9fbe7',borderRadius:5}}>
-              총 매수금: ${(Number(f.buyPrice)*Number(f.quantity)).toFixed(2)}
-            </div>
-          )}
-        </div>
-        <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18}}>
-          <button onClick={onClose} style={{padding:'8px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer',fontSize:'0.85rem'}}>취소</button>
-          <button onClick={()=>onSave(f)} disabled={!valid} style={{padding:'8px 16px',background:valid?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:valid?'pointer':'not-allowed',fontSize:'0.85rem',fontWeight:600}}>저장</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── 현재가 입력 모달 ────────────────────────────────────────────────────────
-function PriceModal({ initial, onSave, onClose }) {
-  const [f, setF] = useState(initial);
-  const valid = f.ticker.trim() && f.date && Number(f.price) > 0;
-  return (
-    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:'#fff',borderRadius:12,padding:24,maxWidth:380,width:'100%'}}>
-        <h3 style={{fontSize:'1.05rem',fontWeight:700,marginBottom:6,color:'#1B5E20'}}>💵 현재가 입력</h3>
-        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>증권사 앱이나 야후 파이낸스에서 가격을 확인하고 입력하세요. 같은 날짜에 다시 입력하면 덮어쓰기됩니다.</p>
-        <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          <div>
-            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>종목</label>
-            <input value={f.ticker} onChange={e=>setF({...f,ticker:e.target.value.toUpperCase()})}
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem',textTransform:'uppercase',background:'#f5f5f5'}} readOnly={!!initial.ticker}/>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>날짜</label>
-            <input type="date" value={f.date} onChange={e=>setF({...f,date:e.target.value})}
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
-          </div>
-          <div>
-            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>가격 ($)</label>
-            <input type="number" step="0.01" min="0" value={f.price} onChange={e=>setF({...f,price:e.target.value})} autoFocus placeholder="920.30"
-                   style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.9rem'}}/>
-          </div>
-        </div>
-        <div style={{display:'flex',gap:8,justifyContent:'flex-end',marginTop:18}}>
-          <button onClick={onClose} style={{padding:'8px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer',fontSize:'0.85rem'}}>취소</button>
-          <button onClick={()=>onSave(f)} disabled={!valid} style={{padding:'8px 16px',background:valid?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:valid?'pointer':'not-allowed',fontSize:'0.85rem',fontWeight:600}}>저장</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+// 원화 포맷 헬퍼
+const fmtKrw = (v) => {
+  if(v >= 100000000) return `${(v/100000000).toFixed(1)}억`;
+  if(v >= 10000)     return `${Math.round(v/10000)}만원`;
+  return `${v.toLocaleString()}원`;
+};
+const fmtKrwFull = (v) => `${v.toLocaleString()}원`;
 
 function InvestPortfolio() {
-  // ── 포트폴리오 상태 (DB 동기화) ──
-  const [portfolio, setPortfolio] = useState(PORTFOLIO);
-  const [pfLoaded, setPfLoaded]   = useState(false);
-  const [editMode, setEditMode]   = useState(false);
-  const [editDraft, setEditDraft] = useState(null);
+  // ── 포트폴리오 (Supabase 연동) ──
+  const [pf, setPf]         = useState(DEFAULT_PORTFOLIO);
+  const [pfLoaded, setPfLoaded] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [draft, setDraft]   = useState(null);
+  const [saving, setSaving] = useState(false);
 
   // ── 차트 ──
-  const [hovered, setHovered]               = useState(null);
-  const [canvasMounted, setCanvasMounted]   = useState(false);
+  const [hovered, setHovered]   = useState(null);
+  const [chartReady, setChartReady] = useState(false);
   const canvasRef = useRef(null);
   const chartRef  = useRef(null);
 
   // ── 일일 시장 메모 ──
   const [notes, setNotes]       = useState([]);
-  const [noteText, setNoteText] = useState('');
   const [noteDate, setNoteDate] = useState(new Date().toISOString().slice(0,10));
+  const [noteText, setNoteText] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
+  const [noteLoaded, setNoteLoaded] = useState(false);
 
-  // ── 주간 리밸런싱 체크리스트 ──
-  const weekStart = getWeekStart();
-  const [rebItems, setRebItems]     = useState([]); // [{text, custom}]
-  const [rebChecks, setRebChecks]   = useState({}); // { idx: true/false }
-  const [rebAddText, setRebAddText] = useState('');
-  const today = new Date();
-  const isSunday = today.getDay() === 0;
-
-  // Chart.js CDN 로드
+  // Chart.js 로드
   useEffect(()=>{
-    if(!window.Chart){
-      const s=document.createElement('script');
-      s.src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
-      s.onload=()=>setCanvasMounted(true);
-      document.head.appendChild(s);
-    } else setCanvasMounted(true);
-  },[]);
+    if(window.Chart){ setChartReady(true); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js';
+    s.onload = () => setChartReady(true);
+    document.head.appendChild(s);
+  }, []);
 
-  // 초기 데이터 로드 (포트폴리오 + 메모 + 체크리스트)
+  // 초기 데이터 로드
   useEffect(()=>{
     (async ()=>{
-      // 1. 포트폴리오
-      try{
-        const pfRow = await dbGet('dlwns_portfolio', `owner=eq.${OWNER_ID}`);
-        if(pfRow && pfRow.data && pfRow.data.items && pfRow.data.items.length > 0){
-          setPortfolio(pfRow.data);
-        }
-      } catch(e){ console.warn('portfolio load fail', e); }
+      // 포트폴리오
+      try {
+        const row = await dbGet('dlwns_portfolio', `owner=eq.${OWNER_ID}`);
+        if(row && row.data && (row.data.items||[]).length > 0) setPf(row.data);
+      } catch(e){ console.warn('pf load', e); }
       setPfLoaded(true);
 
-      // 2. 일일 메모 (최근 14일)
-      try{
-        const noteRows = await dbGetAll('dlwns_market_notes', `owner=eq.${OWNER_ID}`);
-        if(noteRows){
-          const sorted = noteRows
-            .map(r => r.data)
-            .filter(d => d && d.date)
-            .sort((a,b) => b.date.localeCompare(a.date))
-            .slice(0, 14);
-          setNotes(sorted);
+      // 일일 메모 — owner 단일 행에 notes 배열 전체를 저장하는 방식
+      try {
+        const row = await dbGet('dlwns_market_notes', `owner=eq.${OWNER_ID}`);
+        if(row && row.data && Array.isArray(row.data.notes)){
+          setNotes(row.data.notes.slice().sort((a,b)=>b.date.localeCompare(a.date)));
         }
-      } catch(e){ console.warn('notes load fail', e); }
-
-      // 3. 리밸런싱 체크리스트
-      try{
-        const rebRow = await dbGet('dlwns_rebalance', `owner=eq.${OWNER_ID}`);
-        if(rebRow && rebRow.data){
-          const d = rebRow.data;
-          // 새 주가 시작되면 체크 상태 초기화
-          if(d.weekStart === weekStart){
-            setRebItems(d.items || DEFAULT_REBALANCE_ITEMS.map(t=>({text:t, custom:false})));
-            setRebChecks(d.checks || {});
-          } else {
-            // 사용자 추가 항목은 유지, 체크만 초기화
-            const customItems = (d.items || []).filter(it=>it.custom);
-            setRebItems([...DEFAULT_REBALANCE_ITEMS.map(t=>({text:t,custom:false})), ...customItems]);
-            setRebChecks({});
-          }
-        } else {
-          setRebItems(DEFAULT_REBALANCE_ITEMS.map(t=>({text:t,custom:false})));
-        }
-      } catch(e){
-        console.warn('rebalance load fail', e);
-        setRebItems(DEFAULT_REBALANCE_ITEMS.map(t=>({text:t,custom:false})));
-      }
+      } catch(e){ console.warn('notes load', e); }
+      setNoteLoaded(true);
     })();
-  },[]);
+  }, []);
 
-  // 차트 그리기/업데이트
+  // 차트 렌더링
   useEffect(()=>{
-    if(!canvasMounted || !canvasRef.current || !pfLoaded) return;
-    if(chartRef.current){ chartRef.current.destroy(); }
-    chartRef.current = new window.Chart(canvasRef.current,{
-      type:'doughnut',
-      data:{
-        labels: portfolio.items.map(i=>i.label),
+    if(!chartReady || !canvasRef.current || !pfLoaded) return;
+    const total = pf.items.reduce((s,i)=>s+i.krw, 0) || 1;
+    if(chartRef.current) chartRef.current.destroy();
+    chartRef.current = new window.Chart(canvasRef.current, {
+      type: 'doughnut',
+      data: {
+        labels: pf.items.map(i=>i.label),
         datasets:[{
-          data: portfolio.items.map(i=>i.pct),
-          backgroundColor: portfolio.items.map(i=>i.color),
+          data: pf.items.map(i=>+(i.krw/total*100).toFixed(1)),
+          backgroundColor: pf.items.map(i=>i.color),
           borderColor: '#fff',
           borderWidth: 3,
-          hoverOffset: 8,
+          hoverOffset: 10,
         }]
       },
       options:{
-        responsive:true, maintainAspectRatio:false, cutout:'62%',
-        plugins:{ legend:{display:false}, tooltip:{
-          callbacks:{ label: ctx=>`${ctx.label}  ${ctx.parsed}%` }
-        }},
-        onHover:(_,els)=>{ setHovered(els.length>0?els[0].index:null); }
+        responsive:true, maintainAspectRatio:false, cutout:'60%',
+        plugins:{
+          legend:{display:false},
+          tooltip:{ callbacks:{ label: ctx=>`${ctx.label}  ${ctx.parsed.toFixed(1)}%  (${fmtKrw(pf.items[ctx.dataIndex].krw)})` } }
+        },
+        onHover:(_,els)=>setHovered(els.length>0 ? els[0].index : null)
       }
     });
     return ()=>{ if(chartRef.current){ chartRef.current.destroy(); chartRef.current=null; } };
-  },[canvasMounted, pfLoaded, portfolio]);
+  }, [chartReady, pfLoaded, pf]);
 
-  const hItem = hovered!==null ? portfolio.items[hovered] : null;
-  const total = portfolio.items.reduce((s,i)=>s+i.pct,0);
+  const totalKrw  = pf.items.reduce((s,i)=>s+i.krw, 0);
+  const hItem     = hovered!==null ? pf.items[hovered] : null;
+  const hPct      = hItem ? +(hItem.krw/totalKrw*100).toFixed(1) : 0;
 
-  // ── 포트폴리오 편집 ──
-  const startEdit = () => {
-    setEditDraft(JSON.parse(JSON.stringify(portfolio)));
-    setEditMode(true);
+  // ── 편집 ──
+  const startEdit = () => { setDraft(JSON.parse(JSON.stringify(pf))); setEditMode(true); };
+  const cancelEdit = () => { setEditMode(false); setDraft(null); };
+  const updateItem = (i,k,v) => {
+    const items = [...draft.items];
+    items[i] = {...items[i], [k]: k==='krw' ? Number(v)||0 : v };
+    setDraft({...draft, items});
   };
-  const cancelEdit = () => { setEditMode(false); setEditDraft(null); };
+  const addItem = () => setDraft({...draft, items:[...draft.items, {label:'새 종목', krw:0, color:'#888888', desc:''}]});
+  const removeItem = (i) => setDraft({...draft, items: draft.items.filter((_,j)=>j!==i)});
   const saveEdit = async () => {
-    if(!editDraft) return;
-    const sum = editDraft.items.reduce((s,i)=>s+Number(i.pct||0),0);
-    if(sum !== 100){
-      if(!confirm(`비율 합계가 ${sum}%입니다 (100% 권장). 그래도 저장할까요?`)) return;
-    }
+    setSaving(true);
     const now = new Date();
-    const dateStr = `${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`;
-    const next = { ...editDraft, updatedAt: dateStr, items: editDraft.items.map(i=>({...i, pct:Number(i.pct)})) };
-    const r = await dbUpsert('dlwns_portfolio', { owner: OWNER_ID, data: next });
-    if(r){
-      setPortfolio(next);
-      setEditMode(false);
-      setEditDraft(null);
-    } else {
-      alert('저장 실패. Supabase 연결을 확인해주세요.');
-    }
+    const next = {...draft, updatedAt:`${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`};
+    const r = await dbUpsert('dlwns_portfolio', {owner: OWNER_ID, data: next});
+    if(r){ setPf(next); setEditMode(false); setDraft(null); }
+    else alert('저장 실패 — Supabase dlwns_portfolio 테이블을 확인해주세요.');
+    setSaving(false);
   };
-  const updateDraftItem = (idx, key, val) => {
-    const items = [...editDraft.items];
-    items[idx] = { ...items[idx], [key]: val };
-    setEditDraft({...editDraft, items});
-  };
-  const addDraftItem = () => {
-    setEditDraft({...editDraft, items:[...editDraft.items, {label:'새 종목', pct:0, color:'#888888', desc:''}]});
-  };
-  const removeDraftItem = (idx) => {
-    setEditDraft({...editDraft, items: editDraft.items.filter((_,i)=>i!==idx)});
-  };
-  const updateThesis = (v) => setEditDraft({...editDraft, thesis: v});
 
-  // ── 일일 메모 저장 ──
+  // ── 일일 메모 ──
   const saveNote = async () => {
     if(!noteText.trim()) return;
     setNoteSaving(true);
-    const noteId = Date.now();
-    const payload = {
-      note_id: noteId,
-      owner: OWNER_ID,
-      data: { id: noteId, date: noteDate, text: noteText.trim(), createdAt: new Date().toISOString() }
-    };
-    const r = await dbUpsert('dlwns_market_notes', payload);
-    if(r){
-      setNotes([payload.data, ...notes].slice(0,14));
-      setNoteText('');
-    } else {
-      alert('메모 저장 실패');
-    }
+    const newNote = { id: Date.now(), date: noteDate, text: noteText.trim() };
+    const merged  = [newNote, ...notes].slice(0, 30); // 최근 30개 유지
+    const r = await dbUpsert('dlwns_market_notes', {owner: OWNER_ID, data: {notes: merged}});
+    if(r){ setNotes(merged); setNoteText(''); }
+    else alert('메모 저장 실패 — Supabase dlwns_market_notes 테이블을 확인해주세요.');
     setNoteSaving(false);
   };
   const delNote = async (id) => {
     if(!confirm('이 메모를 삭제할까요?')) return;
-    const ok = await dbDelete('dlwns_market_notes', `note_id=eq.${id}`);
-    if(ok) setNotes(notes.filter(n=>n.id!==id));
+    const merged = notes.filter(n=>n.id!==id);
+    await dbUpsert('dlwns_market_notes', {owner: OWNER_ID, data: {notes: merged}});
+    setNotes(merged);
   };
-
-  // ── 리밸런싱 체크리스트 ──
-  const saveRebalance = async (items, checks) => {
-    const payload = { owner: OWNER_ID, data: { weekStart, items, checks } };
-    await dbUpsert('dlwns_rebalance', payload);
-  };
-  const toggleCheck = (idx) => {
-    const next = { ...rebChecks, [idx]: !rebChecks[idx] };
-    setRebChecks(next);
-    saveRebalance(rebItems, next);
-  };
-  const addRebItem = () => {
-    if(!rebAddText.trim()) return;
-    const next = [...rebItems, { text: rebAddText.trim(), custom: true }];
-    setRebItems(next);
-    setRebAddText('');
-    saveRebalance(next, rebChecks);
-  };
-  const removeRebItem = (idx) => {
-    if(!rebItems[idx].custom) return;
-    const next = rebItems.filter((_,i)=>i!==idx);
-    const nextChecks = {};
-    Object.keys(rebChecks).forEach(k=>{
-      const ki = Number(k);
-      if(ki < idx) nextChecks[ki] = rebChecks[k];
-      else if(ki > idx) nextChecks[ki-1] = rebChecks[k];
-    });
-    setRebItems(next);
-    setRebChecks(nextChecks);
-    saveRebalance(next, nextChecks);
-  };
-
-  const checkedCount = rebItems.reduce((s,_,i)=>s+(rebChecks[i]?1:0),0);
 
   return (
     <div style={{padding:'32px 0'}}>
+
       {/* ─── 헤더 ─── */}
-      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:6,flexWrap:'wrap'}}>
-        <h2 style={{fontSize:'1.3rem',fontWeight:800,color:'#1B5E20'}}>💼 AI 시대의 포트폴리오</h2>
-        <span style={{fontSize:'0.72rem',background:'#e8f5e9',color:'#2e7d32',padding:'3px 10px',borderRadius:20,fontWeight:600}}>$10,000 기준</span>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6,flexWrap:'wrap'}}>
+        <h2 style={{fontSize:'1.3rem',fontWeight:800,color:'#1B5E20'}}>💼 내 포트폴리오</h2>
+        <span style={{fontSize:'0.72rem',background:'#e8f5e9',color:'#2e7d32',padding:'3px 10px',borderRadius:20,fontWeight:600}}>
+          총 {fmtKrwFull(totalKrw)}
+        </span>
         {!editMode && (
-          <button onClick={startEdit} style={{marginLeft:'auto',fontSize:'0.78rem',padding:'5px 12px',background:'#fff',border:'1px solid #1B5E20',color:'#1B5E20',borderRadius:6,cursor:'pointer',fontWeight:600}}>✏️ 편집</button>
+          <button onClick={startEdit}
+            style={{marginLeft:'auto',fontSize:'0.78rem',padding:'5px 14px',background:'#fff',border:'1px solid #1B5E20',color:'#1B5E20',borderRadius:6,cursor:'pointer',fontWeight:600}}>
+            ✏️ 편집
+          </button>
         )}
       </div>
-      <div style={{fontSize:'0.8rem',color:'var(--muted)',marginBottom:4}}>업데이트: {portfolio.updatedAt}</div>
+      <div style={{fontSize:'0.78rem',color:'var(--muted)',marginBottom:12}}>
+        마지막 수정: {pf.updatedAt}
+      </div>
 
       {/* ─── 편집 모드 ─── */}
-      {editMode ? (
+      {editMode && draft && (
         <div style={{background:'#fffde7',border:'2px solid #fbc02d',borderRadius:10,padding:18,marginBottom:24}}>
-          <div style={{fontSize:'0.85rem',fontWeight:700,marginBottom:10,color:'#5d4037'}}>📝 포트폴리오 편집</div>
-          <div style={{marginBottom:14}}>
-            <label style={{display:'block',fontSize:'0.75rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>투자 철학 (thesis)</label>
-            <textarea value={editDraft.thesis} onChange={e=>updateThesis(e.target.value)} rows={3} style={{width:'100%',padding:8,borderRadius:6,border:'1px solid #ddd',fontSize:'0.82rem',fontFamily:'inherit',resize:'vertical'}}/>
+          <div style={{fontWeight:700,fontSize:'0.88rem',marginBottom:10,color:'#5d4037'}}>📝 포트폴리오 편집</div>
+          <div style={{marginBottom:12}}>
+            <label style={{display:'block',fontSize:'0.74rem',fontWeight:600,marginBottom:4,color:'var(--sub)'}}>투자 철학</label>
+            <textarea value={draft.thesis} onChange={e=>setDraft({...draft,thesis:e.target.value})} rows={2}
+              style={{width:'100%',padding:8,borderRadius:6,border:'1px solid #ddd',fontSize:'0.82rem',fontFamily:'inherit',resize:'vertical'}}/>
           </div>
-          <div style={{fontSize:'0.75rem',fontWeight:600,marginBottom:6,color:'var(--sub)'}}>종목 ({editDraft.items.length}개 · 합계 {editDraft.items.reduce((s,i)=>s+Number(i.pct||0),0)}%)</div>
+          <div style={{fontSize:'0.74rem',fontWeight:600,marginBottom:6,color:'var(--sub)'}}>
+            종목 ({draft.items.length}개 · 합계 {fmtKrwFull(draft.items.reduce((s,i)=>s+i.krw,0))})
+          </div>
           <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
-            {editDraft.items.map((it,i)=>(
-              <div key={i} style={{display:'grid',gridTemplateColumns:'36px 110px 60px 1fr 30px',gap:6,alignItems:'center'}}>
-                <input type="color" value={it.color} onChange={e=>updateDraftItem(i,'color',e.target.value)} style={{width:36,height:30,border:'1px solid #ddd',borderRadius:4,padding:1,cursor:'pointer'}}/>
-                <input value={it.label} onChange={e=>updateDraftItem(i,'label',e.target.value)} placeholder="종목명" style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
-                <input type="number" value={it.pct} onChange={e=>updateDraftItem(i,'pct',e.target.value)} placeholder="%" min={0} max={100} style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem',textAlign:'right'}}/>
-                <input value={it.desc} onChange={e=>updateDraftItem(i,'desc',e.target.value)} placeholder="투자 근거 (간단히)" style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
-                <button onClick={()=>removeDraftItem(i)} style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'1rem'}}>×</button>
+            {draft.items.map((it,i)=>(
+              <div key={i} style={{display:'grid',gridTemplateColumns:'34px 90px 130px 1fr 28px',gap:6,alignItems:'center'}}>
+                <input type="color" value={it.color} onChange={e=>updateItem(i,'color',e.target.value)}
+                  style={{width:34,height:30,border:'1px solid #ddd',borderRadius:4,padding:1,cursor:'pointer'}}/>
+                <input value={it.label} onChange={e=>updateItem(i,'label',e.target.value)} placeholder="종목"
+                  style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                <div style={{position:'relative'}}>
+                  <input type="number" value={it.krw} onChange={e=>updateItem(i,'krw',e.target.value)}
+                    placeholder="투자금액(원)" min={0}
+                    style={{width:'100%',padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                  {it.krw>0 && (
+                    <div style={{fontSize:'0.62rem',color:'#888',marginTop:1}}>{fmtKrw(it.krw)}</div>
+                  )}
+                </div>
+                <input value={it.desc} onChange={e=>updateItem(i,'desc',e.target.value)} placeholder="투자 근거"
+                  style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                <button onClick={()=>removeItem(i)}
+                  style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'1rem',lineHeight:1}}>×</button>
               </div>
             ))}
           </div>
-          <button onClick={addDraftItem} style={{fontSize:'0.78rem',padding:'5px 12px',background:'#fff',border:'1px dashed #999',borderRadius:6,cursor:'pointer',marginBottom:14}}>+ 종목 추가</button>
+          <button onClick={addItem}
+            style={{fontSize:'0.78rem',padding:'5px 12px',background:'#fff',border:'1px dashed #999',borderRadius:6,cursor:'pointer',marginBottom:14}}>
+            + 종목 추가
+          </button>
           <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-            <button onClick={cancelEdit} style={{fontSize:'0.8rem',padding:'7px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer'}}>취소</button>
-            <button onClick={saveEdit} style={{fontSize:'0.8rem',padding:'7px 16px',background:'#1B5E20',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:600}}>저장</button>
+            <button onClick={cancelEdit}
+              style={{fontSize:'0.8rem',padding:'7px 16px',background:'#fff',border:'1px solid #ccc',borderRadius:6,cursor:'pointer'}}>
+              취소
+            </button>
+            <button onClick={saveEdit} disabled={saving}
+              style={{fontSize:'0.8rem',padding:'7px 16px',background:'#1B5E20',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontWeight:600,opacity:saving?0.6:1}}>
+              {saving ? '저장 중…' : '저장'}
+            </button>
           </div>
         </div>
-      ) : (
-        <p style={{fontSize:'0.83rem',color:'var(--sub)',lineHeight:1.7,marginBottom:28,maxWidth:640,padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
-          {portfolio.thesis}
+      )}
+
+      {/* ─── 투자 철학 ─── */}
+      {!editMode && (
+        <p style={{fontSize:'0.83rem',color:'var(--sub)',lineHeight:1.7,marginBottom:24,padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
+          {pf.thesis}
         </p>
       )}
 
       {/* ─── 차트 + 종목 리스트 ─── */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'start'}}>
-        <div style={{position:'relative'}}>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:28,alignItems:'start'}}>
+        {/* 도넛 차트 */}
+        <div>
           <div style={{position:'relative',width:'100%',height:280}}>
             <canvas ref={canvasRef} role="img" aria-label="포트폴리오 도넛 차트"/>
-            <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',textAlign:'center',pointerEvents:'none'}}>
+            <div style={{position:'absolute',top:'50%',left:'50%',transform:'translate(-50%,-50%)',textAlign:'center',pointerEvents:'none',minWidth:90}}>
               {hItem ? (
                 <>
-                  <div style={{fontSize:'1.4rem',fontWeight:800,color:hItem.color}}>{hItem.pct}%</div>
+                  <div style={{fontSize:'1.3rem',fontWeight:800,color:hItem.color}}>{hPct}%</div>
                   <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text)'}}>{hItem.label}</div>
-                  <div style={{fontSize:'0.68rem',color:'var(--muted)'}}>${(10000*hItem.pct/100).toFixed(0)}</div>
+                  <div style={{fontSize:'0.68rem',color:'var(--muted)',marginTop:2}}>{fmtKrw(hItem.krw)}</div>
                 </>
               ) : (
                 <>
-                  <div style={{fontSize:'1.5rem',fontWeight:800,color:'#1B5E20'}}>$10K</div>
-                  <div style={{fontSize:'0.72rem',color:'var(--muted)'}}>포트폴리오</div>
+                  <div style={{fontSize:'1.1rem',fontWeight:800,color:'#1B5E20'}}>{fmtKrw(totalKrw)}</div>
+                  <div style={{fontSize:'0.7rem',color:'var(--muted)',marginTop:2}}>총 투자금</div>
                 </>
               )}
             </div>
           </div>
+          {/* 총합 요약 */}
+          <div style={{marginTop:8,padding:'10px 14px',background:'#f1f8e9',borderRadius:8,fontSize:'0.8rem',color:'#2e7d32',fontWeight:600,textAlign:'center'}}>
+            총 투자금 {fmtKrwFull(totalKrw)}
+          </div>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          {portfolio.items.map((item,i)=>(
-            <div key={i}
-              onMouseEnter={()=>{ setHovered(i); if(chartRef.current){chartRef.current.data.datasets[0].hoverOffset=12;chartRef.current.update();} }}
-              onMouseLeave={()=>{ setHovered(null); if(chartRef.current){chartRef.current.update();} }}
-              style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderRadius:8,cursor:'default',background:hovered===i?'#f1f8e9':'transparent',transition:'background 0.15s'}}>
-              <div style={{width:10,height:10,borderRadius:'50%',background:item.color,flexShrink:0}}/>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <span style={{fontWeight:700,fontSize:'0.82rem',color:item.color}}>{item.label}</span>
-                  <span style={{fontWeight:700,fontSize:'0.82rem',color:'var(--text)'}}>{item.pct}%</span>
+
+        {/* 종목 리스트 */}
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {pf.items.map((item,i)=>{
+            const pct = totalKrw>0 ? +(item.krw/totalKrw*100).toFixed(1) : 0;
+            const isHov = hovered===i;
+            return (
+              <div key={i}
+                onMouseEnter={()=>{ setHovered(i); if(chartRef.current){chartRef.current.data.datasets[0].hoverOffset=12;chartRef.current.update();} }}
+                onMouseLeave={()=>{ setHovered(null); if(chartRef.current) chartRef.current.update(); }}
+                style={{padding:'8px 12px',borderRadius:8,cursor:'default',background:isHov?'#f1f8e9':'#fafafa',border:`1px solid ${isHov?'#a5d6a7':'transparent'}`,transition:'all 0.15s'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',background:item.color,flexShrink:0}}/>
+                  <span style={{fontWeight:700,fontSize:'0.84rem',color:item.color,flex:1}}>{item.label}</span>
+                  <span style={{fontWeight:700,fontSize:'0.82rem',color:'var(--text)'}}>{pct}%</span>
                 </div>
-                {hovered===i && <div style={{fontSize:'0.72rem',color:'var(--muted)',marginTop:3,lineHeight:1.5}}>{item.desc}</div>}
+                {/* 금액 + 비율 바 */}
+                <div style={{marginTop:5,marginLeft:18}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.72rem',color:'var(--muted)',marginBottom:4}}>
+                    <span>{fmtKrwFull(item.krw)}</span>
+                  </div>
+                  <div style={{height:4,background:'#e0e0e0',borderRadius:2,overflow:'hidden'}}>
+                    <div style={{height:'100%',width:`${pct}%`,background:item.color,borderRadius:2,transition:'width 0.3s'}}/>
+                  </div>
+                </div>
+                {isHov && item.desc && (
+                  <div style={{fontSize:'0.71rem',color:'var(--muted)',marginTop:5,marginLeft:18,lineHeight:1.5}}>{item.desc}</div>
+                )}
               </div>
-            </div>
-          ))}
-          {total !== 100 && (
-            <div style={{fontSize:'0.7rem',color:'#e65100',marginTop:4,padding:'4px 8px',background:'#fff3e0',borderRadius:4}}>
-              ⚠️ 비율 합계: {total}% (100%가 아닙니다)
-            </div>
-          )}
+            );
+          })}
         </div>
       </div>
 
-      {/* ─── 내 보유 종목 (매수 기록 + 현재가 수동 입력) ─── */}
-      <MyHoldings />
-
       {/* ─── 일일 시장 메모 ─── */}
-      <div style={{marginTop:36,padding:'20px 0',borderTop:'1px solid var(--border)'}}>
-        <h3 style={{fontSize:'1.05rem',fontWeight:700,marginBottom:4,color:'#1B5E20'}}>📝 일일 시장 메모</h3>
-        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>매일의 시장 관찰·결정·복기를 기록합니다. 좋은 투자자는 자기만의 일지를 씁니다.</p>
-        <div style={{display:'flex',gap:8,marginBottom:14,flexWrap:'wrap'}}>
-          <input type="date" value={noteDate} onChange={e=>setNoteDate(e.target.value)} style={{padding:'7px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.82rem'}}/>
+      <div style={{marginTop:36,paddingTop:28,borderTop:'1px solid var(--border)'}}>
+        <h3 style={{fontSize:'1rem',fontWeight:700,marginBottom:4,color:'#1B5E20'}}>📝 일일 시장 메모</h3>
+        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14,lineHeight:1.6}}>
+          매일의 시장 관찰·결정·복기를 기록합니다. 투자 일지는 장기 수익률을 만듭니다.
+        </p>
+
+        {/* 입력 영역 */}
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20,padding:'14px',background:'#f9fbe7',borderRadius:8,border:'1px solid #e6ee9c'}}>
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            <input type="date" value={noteDate} onChange={e=>setNoteDate(e.target.value)}
+              style={{padding:'6px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.82rem'}}/>
+            <span style={{fontSize:'0.75rem',color:'var(--muted)'}}>날짜 선택 후 내용 입력</span>
+          </div>
           <textarea
             value={noteText}
             onChange={e=>setNoteText(e.target.value)}
-            placeholder="오늘 시장에서 무엇을 봤고, 어떤 결정을 했고, 무엇을 배웠는지..."
-            rows={3}
-            style={{flex:1,minWidth:240,padding:'7px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.85rem',fontFamily:'inherit',resize:'vertical'}}/>
-          <button onClick={saveNote} disabled={noteSaving||!noteText.trim()} style={{padding:'7px 16px',background:noteText.trim()?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:noteText.trim()?'pointer':'not-allowed',fontWeight:600,fontSize:'0.85rem',alignSelf:'flex-start'}}>
-            {noteSaving?'저장중...':'저장'}
-          </button>
+            placeholder="오늘 시장에서 무엇을 봤고, 어떤 결정을 했고, 무엇을 배웠는지 자유롭게 기록하세요..."
+            rows={4}
+            style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.85rem',fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}
+          />
+          <div style={{display:'flex',justifyContent:'flex-end'}}>
+            <button onClick={saveNote} disabled={noteSaving||!noteText.trim()}
+              style={{padding:'7px 20px',background:noteText.trim()?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:noteText.trim()?'pointer':'not-allowed',fontWeight:600,fontSize:'0.85rem'}}>
+              {noteSaving ? '저장 중…' : '저장'}
+            </button>
+          </div>
         </div>
-        {notes.length === 0 ? (
-          <div style={{fontSize:'0.8rem',color:'var(--muted)',padding:'14px',background:'#fafafa',borderRadius:8,textAlign:'center'}}>아직 메모가 없습니다. 오늘의 첫 메모를 남겨보세요.</div>
+
+        {/* 메모 목록 */}
+        {!noteLoaded ? (
+          <div style={{fontSize:'0.8rem',color:'var(--muted)',padding:'16px',textAlign:'center'}}>불러오는 중…</div>
+        ) : notes.length === 0 ? (
+          <div style={{fontSize:'0.8rem',color:'var(--muted)',padding:'20px',background:'#fafafa',borderRadius:8,textAlign:'center'}}>
+            아직 메모가 없습니다. 오늘의 첫 메모를 남겨보세요.
+          </div>
         ) : (
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {notes.map(n=>(
-              <div key={n.id} style={{padding:'10px 14px',background:'#f9fbe7',borderRadius:8,borderLeft:'3px solid #827717'}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                  <span style={{fontSize:'0.72rem',fontWeight:700,color:'#827717'}}>{n.date}</span>
-                  <button onClick={()=>delNote(n.id)} style={{background:'transparent',border:'none',color:'#999',cursor:'pointer',fontSize:'0.9rem'}}>×</button>
+              <div key={n.id} style={{padding:'12px 14px',background:'#fff',borderRadius:8,border:'1px solid var(--border)'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                  <span style={{fontSize:'0.74rem',fontWeight:700,color:'#827717',background:'#fff9c4',padding:'2px 8px',borderRadius:10}}>{n.date}</span>
+                  <button onClick={()=>delNote(n.id)}
+                    style={{background:'transparent',border:'none',color:'#bbb',cursor:'pointer',fontSize:'0.9rem',lineHeight:1}}>×</button>
                 </div>
-                <div style={{fontSize:'0.85rem',color:'var(--text)',lineHeight:1.6,whiteSpace:'pre-wrap'}}>{n.text}</div>
+                <div style={{fontSize:'0.85rem',color:'var(--text)',lineHeight:1.7,whiteSpace:'pre-wrap'}}>{n.text}</div>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* ─── 주간 리밸런싱 체크리스트 ─── */}
-      <div style={{marginTop:36,padding:'20px 0',borderTop:'1px solid var(--border)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4,flexWrap:'wrap'}}>
-          <h3 style={{fontSize:'1.05rem',fontWeight:700,color:'#1B5E20'}}>✅ 주간 리밸런싱 체크리스트</h3>
-          <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>이번 주 ({weekStart}~) · {checkedCount}/{rebItems.length}</span>
-          {isSunday && <span style={{fontSize:'0.7rem',background:'#fff3e0',color:'#e65100',padding:'3px 10px',borderRadius:20,fontWeight:600}}>🔔 일요일 — 리밸런싱 점검일</span>}
-        </div>
-        <p style={{fontSize:'0.75rem',color:'var(--muted)',marginBottom:14}}>월요일에 자동으로 체크가 초기화됩니다. 사용자 추가 항목은 다음 주에도 유지됩니다.</p>
-        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:14}}>
-          {rebItems.map((it,i)=>(
-            <label key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:rebChecks[i]?'#e8f5e9':'#fafafa',borderRadius:6,cursor:'pointer',transition:'background 0.15s'}}>
-              <input type="checkbox" checked={!!rebChecks[i]} onChange={()=>toggleCheck(i)} style={{width:16,height:16,cursor:'pointer'}}/>
-              <span style={{flex:1,fontSize:'0.85rem',color:rebChecks[i]?'#888':'var(--text)',textDecoration:rebChecks[i]?'line-through':'none'}}>{it.text}</span>
-              {it.custom && <button onClick={(e)=>{e.preventDefault();removeRebItem(i);}} style={{background:'transparent',border:'none',color:'#999',cursor:'pointer',fontSize:'0.9rem'}}>×</button>}
-            </label>
-          ))}
-        </div>
-        <div style={{display:'flex',gap:8}}>
-          <input
-            value={rebAddText}
-            onChange={e=>setRebAddText(e.target.value)}
-            onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();addRebItem();}}}
-            placeholder="나만의 체크 항목 추가..."
-            style={{flex:1,padding:'7px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.82rem'}}/>
-          <button onClick={addRebItem} disabled={!rebAddText.trim()} style={{padding:'7px 14px',background:rebAddText.trim()?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:rebAddText.trim()?'pointer':'not-allowed',fontWeight:600,fontSize:'0.82rem'}}>추가</button>
-        </div>
-      </div>
-
       <div style={{marginTop:24,fontSize:'0.68rem',color:'#bbb',borderTop:'1px solid var(--border)',paddingTop:10}}>
-        ⚠️ 투자 참고용 포트폴리오입니다. 실제 투자 결정은 본인의 판단으로 하세요. 매일의 메모와 주간 점검이 장기 수익률을 만듭니다.
+        ⚠️ 투자 참고용 포트폴리오입니다. 실제 투자 결정은 본인의 판단으로 하세요.
       </div>
     </div>
   );
@@ -1658,7 +1181,7 @@ export default function App() {
   const [modal,setModal]      = useState(null);
   const [editing,setEditing]  = useState(null);
   const [loading,setLoading]  = useState(true);
-  const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});
+  const [form,setForm]        = useState({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
   const [prForm,setPrForm]    = useState({...DEF_PROFILE});
   // Calendar state
   const [calEvents,setCalEvents] = useState({});
@@ -1779,21 +1302,11 @@ export default function App() {
   }, []);
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
-  // 임시저장(draft) / 정식저장(published) 두 가지 모드
-  const requestSavePost = (asDraft) => {
-    if(!form.title) return;
-    setConfirmAction({type: asDraft?'saveDraft':'savePost', data:{asDraft}});
-  };
-  const savePost = async (asDraft=false) => {
+  const savePost = async () => {
     const today=new Date().toISOString().slice(0,10);
-    // images가 있으면 img는 대표 이미지로 동기화 (옛 카드뷰 호환)
-    const main = (form.images && form.images.length>0)
-      ? (form.images[form.mainIdx] || form.images[0])
-      : form.img;
-    const status = asDraft ? 'draft' : 'published';
     const newPost = editing
-      ? {...posts.find(p=>p.id===editing.id), ...form, img: main, status}
-      : {id:Date.now(),...form,img:main,date:today,status};
+      ? {...posts.find(p=>p.id===editing.id), ...form}
+      : {id:Date.now(),...form,date:today};
     const u = editing
       ? posts.map(p=>p.id===editing.id?newPost:p)
       : [newPost,...posts];
@@ -1801,12 +1314,7 @@ export default function App() {
     // Supabase 저장
     await dbUpsert("dlwns_posts", { post_id: newPost.id, owner: OWNER_ID, data: newPost });
     setModal(null); setEditing(null);
-    setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});
-  };
-  const confirmSave = () => {
-    const asDraft = confirmAction.data.asDraft;
-    setConfirmAction(null);
-    savePost(asDraft);
+    setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
   };
   const delPost = async (id) => {
     const u=posts.filter(p=>p.id!==id); setPosts(u); postsRef.current=u;
@@ -1931,7 +1439,7 @@ export default function App() {
   const confirmDelete = () => { delPost(confirmAction.data.id); setConfirmAction(null); };
   const openEdit = p => {
     setEditing(p);
-    setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",images:p.images||[],pinned:p.pinned||false,videoUrl:p.videoUrl||"",mainIdx:Number.isInteger(p.mainIdx)?p.mainIdx:0});
+    setForm({title:p.title,summary:p.summary,cat:p.cat,subcat:p.subcat||"all",body:p.body||"",img:p.img||"",images:p.images||[],pinned:p.pinned||false,videoUrl:p.videoUrl||""});
     setModal('write');
   };
   const saveProfile = async () => {
@@ -1942,17 +1450,15 @@ export default function App() {
   const handleImg = async e => {
     const files = Array.from(e.target.files);
     if(!files.length) return;
-    // 모든 카테고리에서 다중 이미지 지원 (음악 제외 - 음악은 별도 폼이라 영향 없음)
-    const newImgs = await Promise.all(files.map(f=>toB64(f)));
-    setForm(prev=>{
-      const merged = [...(prev.images||[]), ...newImgs];
-      // 옛 img 단일 필드는 호환을 위해 첫 사진으로 갱신
-      const mIdx = Number.isInteger(prev.mainIdx) ? prev.mainIdx : 0;
-      const main = merged[mIdx] || merged[0] || '';
-      return {...prev, images: merged, img: main};
-    });
-    // 같은 파일 다시 선택 가능하도록 input 리셋
-    e.target.value = '';
+    if(form.subcat === 'photo' || form.cat === 'baseball') {
+      // 오늘의 사진 & 야구: 여러 장
+      const newImgs = await Promise.all(files.map(f=>toB64(f)));
+      setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
+    } else {
+      // 다른 카테고리: 대표 이미지 1장
+      const b64 = await toB64(files[0]);
+      setForm(prev=>({...prev, img:b64}));
+    }
   };
   const handleAvatar = async e => {
     const f=e.target.files[0]; if(!f)return;
@@ -1967,10 +1473,7 @@ export default function App() {
   const isAll = activeCat==="all";
   const catInfo = CAT[activeCat];
   const subcats = !isAll ? SUBCATS[activeCat]||[] : [];
-  // 임시저장 글은 메인 피드/카테고리에서 숨김 (편집/이어쓰기 용도로만)
-  const publicPosts = posts.filter(p => p.status !== 'draft');
-  const drafts      = posts.filter(p => p.status === 'draft');
-  const catFiltered = isAll ? publicPosts : publicPosts.filter(p=>p.cat===activeCat);
+  const catFiltered = isAll ? posts : posts.filter(p=>p.cat===activeCat);
   const filtered = activeSub==="all" ? catFiltered : catFiltered.filter(p=>p.subcat===activeSub);
   const pinned = isAll ? (filtered.find(p=>p.pinned)||filtered[0]) : null;
   const rest = pinned ? filtered.filter(p=>p!==pinned) : filtered;
@@ -1984,15 +1487,6 @@ export default function App() {
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
   // ── Video render helper ─────────────────────────────────────────────────────
-  // 대표 이미지 헬퍼: 새 글은 images[mainIdx] || images[0], 옛 글은 img
-  const mainImg = (p) => {
-    if(p.images && p.images.length > 0){
-      const idx = Number.isInteger(p.mainIdx) ? p.mainIdx : 0;
-      return p.images[idx] || p.images[0] || '';
-    }
-    return p.img || '';
-  };
-
   const renderVideo = (post) => {
     const v = parseVideoUrl(post.videoUrl);
     if(!v) return null;
@@ -2074,7 +1568,7 @@ export default function App() {
               </>
             )}
           </div>
-          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 글쓰기</button>
+          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
         </div>
       </div>
     </header>
@@ -2092,28 +1586,14 @@ export default function App() {
             <button className="btn-del-sm" onClick={()=>requestDelete(detail.id,detail.title)}>삭제</button>
           </div>
           {detail.videoUrl && renderVideo(detail)}
-          {/* 이미지 표시: images 배열이 있으면 그리드, 없으면 단일 img 호환 */}
-          {(() => {
-            const imgs = (detail.images && detail.images.length > 0) ? detail.images : (detail.img ? [detail.img] : []);
-            if(imgs.length === 0) return null;
-            // 대표 사진을 맨 앞으로
-            const mIdx = Number.isInteger(detail.mainIdx) ? detail.mainIdx : 0;
-            const ordered = imgs.length > 1
-              ? [imgs[mIdx], ...imgs.filter((_,i)=>i!==mIdx)]
-              : imgs;
-            if(ordered.length === 1){
-              // 사진 한 장: 화면 가득 (기존 detail-img 스타일과 동일하게)
-              return <img className="detail-img" src={ordered[0]} alt=""/>;
-            }
-            // 여러 장: 4분할 그리드 (한 장당 화면의 25%)
-            return (
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(160px,1fr))',gap:8,marginBottom:24}}>
-                {ordered.map((src,i)=>(
-                  <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'1/1',objectFit:'cover',borderRadius:6,display:'block'}}/>
-                ))}
-              </div>
-            );
-          })()}
+          {/* 야구 or 오늘의 사진: 대형 그리드 */}
+          {(detail.cat==='baseball' || detail.subcat==='photo') && (detail.images||[]).length>0 ? (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12,marginBottom:24}}>
+              {(detail.images||[]).map((src,i)=>(
+                <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,display:'block'}}/>
+              ))}
+            </div>
+          ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
           <div className="detail-body">
             {(detail.body||detail.summary).split('\n').map((line,i)=>(
               line.trim()==='' ? <br key={i}/> : <p key={i} style={{margin:0,minHeight:'1.4em'}}>{line}</p>
@@ -2192,7 +1672,7 @@ export default function App() {
             <div className="hero-content">
               <h1>이준 기록집</h1>
               <div className="hero-actions" style={{marginTop:24}}>
-                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>{'+ 새 글 작성'}</button>
+                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>{'+ 새 글 작성'}</button>
                 <button className="btn btn-lg btn-outline-white" onClick={()=>{
                   setShowAllMode(true);
                   setTimeout(()=>{
@@ -2239,17 +1719,6 @@ export default function App() {
                   </div>
                 </div>
               )}
-              <div className="cat-stat" style={{cursor:'pointer'}}
-                   onClick={()=>{
-                     setEditing(null);
-                     setForm({title:"",summary:"",cat:activeCat==='invest'?"insight":activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});
-                     setModal('write');
-                   }}>
-                <div>
-                  <div className="cat-stat-num" style={{color:catInfo.color,fontSize:'1.6rem'}}>+</div>
-                  <div className="cat-stat-label">글쓰기</div>
-                </div>
-              </div>
             </div>
             {/* ── 서브카테고리 탭 ── */}
             {subcats.length>0&&(
@@ -2385,7 +1854,7 @@ export default function App() {
                         <div className="posts-grid">
                           {grouped[date].map(p=>(
                             <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
-                              <div className="pc-thumb">{mainImg(p)?<img src={mainImg(p)} alt=""/>:EMO[p.cat]}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
+                              <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
                               <div className="pc-body">
                                 <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
                                 <div className="pc-title">{p.title}</div>
@@ -2420,7 +1889,9 @@ export default function App() {
                       </div>
                     </div>
                     <div className="featured-img">
-                      {mainImg(pinned)?<img src={mainImg(pinned)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:EMO[pinned.cat]}
+                      {pinned.subcat==='photo'&&(pinned.images||[]).length>0?(
+                        <img src={pinned.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                      ):pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}
                       {pinned.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                   </div>
@@ -2430,7 +1901,7 @@ export default function App() {
                     {rest.map(p=>(
                       <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
                         <div className="pc-thumb">
-                          {mainImg(p)?<img src={mainImg(p)} alt=""/>:EMO[p.cat]}
+                          {p.img?<img src={p.img} alt=""/>:EMO[p.cat]}
                           {p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                         </div>
                         <div className="pc-body">
@@ -2573,7 +2044,7 @@ export default function App() {
                     <div className="empty-icon">🎵</div>
                     <div className="empty-title">플레이리스트가 비어있어요</div>
                     <div className="empty-desc">유튜브 링크와 함께 음악을 추가해보세요!</div>
-                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 음악 추가</button>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 음악 추가</button>
                   </div>
                 )}
               </div>
@@ -2585,9 +2056,13 @@ export default function App() {
                     {filtered.map(p=>(
                       <div key={p.id} className="post-card" onClick={()=>navToPost(p)} style={{overflow:'hidden'}}>
                         {/* 야구: 첫 사진을 1/3 비율로 크게 */}
-                        {mainImg(p) ? (
+                        {(p.images||[]).length>0 ? (
                           <div style={{aspectRatio:'3/2',overflow:'hidden',background:'#111'}}>
-                            <img src={mainImg(p)} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                            <img src={p.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                          </div>
+                        ) : p.img ? (
+                          <div style={{aspectRatio:'3/2',overflow:'hidden'}}>
+                            <img src={p.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                           </div>
                         ) : (
                           <div style={{aspectRatio:'3/2',background:'#1565C022',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'3rem'}}>⚾</div>
@@ -2613,7 +2088,7 @@ export default function App() {
                     <div className="empty-icon">⚾</div>
                     <div className="empty-title">야구 기록이 없어요</div>
                     <div className="empty-desc">직관 사진과 함께 야구 기록을 남겨보세요!</div>
-                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 야구 기록 추가</button>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 야구 기록 추가</button>
                   </div>
                 )}
               </div>
@@ -2622,7 +2097,7 @@ export default function App() {
                 {filtered.map(p=>(
                   <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
                     <div className="pc-thumb">
-                      {mainImg(p)?<img src={mainImg(p)} alt=""/>:EMO[p.cat]}
+                      {p.img?<img src={p.img} alt=""/>:EMO[p.cat]}
                       {p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                     <div className="pc-body">
@@ -2647,7 +2122,7 @@ export default function App() {
                   {activeSub!=="all" ? `${subcats.find(s=>s.id===activeSub)?.label} 글이 아직 없어요` : `아직 ${catInfo?.label}에 글이 없어요`}
                 </div>
                 <div className="empty-desc">첫 번째 글을 작성해보세요!</div>
-                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:"",mainIdx:0});setModal('write');}}>+ 첫 글 작성하기</button>
+                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 첫 글 작성하기</button>
               </div>
             )
           )}
@@ -2732,22 +2207,6 @@ export default function App() {
               <button className="btn" style={{padding:'8px 14px',fontSize:'0.8rem',background:'var(--red)',color:'#fff'}} onClick={confirmDelete}>삭제하기</button>
             </div>
           </>}
-          {confirmAction.type==='savePost'&&<>
-            <div className="confirm-modal-title">💾 글 저장</div>
-            <div className="confirm-modal-desc">이 글을 저장하시겠습니까?<br/><b>"{form.title}"</b><br/><span style={{fontSize:'0.78rem',color:'var(--muted)'}}>저장하면 모든 사람에게 공개됩니다.</span></div>
-            <div className="confirm-modal-btns">
-              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
-              <button className="btn btn-primary" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={confirmSave}>저장하기</button>
-            </div>
-          </>}
-          {confirmAction.type==='saveDraft'&&<>
-            <div className="confirm-modal-title">🗒️ 임시 저장</div>
-            <div className="confirm-modal-desc">이 글을 임시저장하시겠습니까?<br/><b>"{form.title}"</b><br/><span style={{fontSize:'0.78rem',color:'var(--muted)'}}>임시저장 글은 공개되지 않으며, 글쓰기 모달에서 이어쓸 수 있습니다.</span></div>
-            <div className="confirm-modal-btns">
-              <button className="btn btn-outline" style={{padding:'8px 14px',fontSize:'0.8rem'}} onClick={()=>setConfirmAction(null)}>취소</button>
-              <button className="btn btn-primary" style={{padding:'8px 14px',fontSize:'0.8rem',background:'#827717',borderColor:'#827717'}} onClick={confirmSave}>임시저장</button>
-            </div>
-          </>}
           {confirmAction.type==='calDel'&&<>
             <div className="confirm-modal-title">🗓 일정 삭제</div>
             <div className="confirm-modal-desc">이 일정을 삭제하시겠습니까?</div>
@@ -2830,22 +2289,6 @@ export default function App() {
           {/* ── 일반 글쓰기 폼 ── */}
             <div className="modal-head"><div className="modal-title">{editing?'글 수정':'새 글 작성'}</div><button className="modal-x" onClick={()=>setModal(null)}>✕</button></div>
             <div className="modal-body">
-              {/* 임시저장 알림 (수정 모드 아닐 때만) */}
-              {!editing && drafts.length > 0 && (
-                <div style={{background:'#fffde7',border:'1px solid #fbc02d',borderRadius:8,padding:'10px 14px',marginBottom:14,display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-                  <span style={{fontSize:'0.82rem',color:'#5d4037',flex:1,minWidth:200}}>🗒️ 임시저장 글 <b>{drafts.length}개</b>가 있습니다. 이어쓰시겠습니까?</span>
-                  <select style={{padding:'5px 8px',fontSize:'0.78rem',border:'1px solid #ddd',borderRadius:5,maxWidth:240}} onChange={e=>{
-                    const v = e.target.value;
-                    if(!v) return;
-                    const d = drafts.find(p=>String(p.id)===v);
-                    if(d){ openEdit(d); }
-                    e.target.value = '';
-                  }}>
-                    <option value="">— 이어쓸 글 선택 —</option>
-                    {drafts.map(d=><option key={d.id} value={d.id}>{d.title || '(제목 없음)'} · {d.date}</option>)}
-                  </select>
-                </div>
-              )}
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
                 <div className="fg"><label>카테고리</label>
                   <select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
@@ -2860,49 +2303,36 @@ export default function App() {
               </div>
               <div className="fg"><label>제목</label><input type="text" value={form.title} placeholder="제목을 입력하세요" onChange={e=>setForm({...form,title:e.target.value})}/></div>
               <div className="fg"><label>요약</label><textarea rows={2} value={form.summary} placeholder="한 줄 요약" onChange={e=>setForm({...form,summary:e.target.value})}/></div>
+              <div className="fg"><label>본문</label><textarea rows={5} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
+              {(form.cat==='inspiration') && (
+                <div className="fg">
+                  <label>영상 URL (유튜브 / 쇼츠 / 인스타 릴스)</label>
+                  <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
+                  <div className="video-hint">유튜브, 유튜브 쇼츠, 인스타그램 릴스 링크를 입력하세요</div>
+                </div>
+              )}
               <div className="fg">
-                <label>유튜브 영상 링크 (선택)</label>
-                <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 쇼츠/인스타 릴스" onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
-                <div className="video-hint">입력하면 글 본문 위에 영상이 임베드되어 바로 재생 가능합니다.</div>
-              </div>
-              <div className="fg">
-                <label>사진 (여러 장 가능 · 대표 사진은 별표 ⭐로 선택)</label>
+                <label>대표 이미지</label>
                 <div style={{display:'flex',gap:10,alignItems:'center'}}>
                   <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>
-                    + 사진 추가
+                    {(form.subcat==="photo"||form.cat==="baseball")?"사진 여러 장 선택":"파일 선택"}
                   </button>
-                  {(form.images||[]).length>0 && <span style={{fontSize:'0.72rem',color:'var(--muted)'}}>{form.images.length}장 · 대표 #{(form.mainIdx||0)+1}</span>}
+                  {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
                 </div>
-                {(form.images||[]).length>0 && (
+                {(form.subcat==='photo'||form.cat==='baseball')&&(form.images||[]).length>0&&(
                   <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
-                    {form.images.map((src,i)=>{
-                      const isMain = i === (form.mainIdx||0);
-                      return (
-                        <div key={i} style={{position:'relative',border:isMain?'2px solid #FFB300':'2px solid transparent',borderRadius:6,overflow:'hidden'}}>
-                          <img src={src} alt="" style={{width:'100%',height:80,objectFit:'cover',display:'block'}}/>
-                          {/* 대표 사진 별표 */}
-                          <button onClick={()=>setForm(prev=>({...prev,mainIdx:i}))}
-                            title={isMain?'대표 사진':'대표 사진으로 설정'}
-                            style={{position:'absolute',top:2,left:2,background:isMain?'#FFB300':'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:22,height:22,fontSize:'0.7rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>
-                            {isMain?'★':'☆'}
-                          </button>
-                          {/* 삭제 */}
-                          <button onClick={()=>setForm(prev=>{
-                            const nextImgs = prev.images.filter((_,j)=>j!==i);
-                            let nextMain = prev.mainIdx||0;
-                            if(i === nextMain) nextMain = 0;
-                            else if(i < nextMain) nextMain -= 1;
-                            return {...prev,images:nextImgs,mainIdx:Math.max(0,Math.min(nextMain,nextImgs.length-1))};
-                          })}
-                            style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:20,height:20,fontSize:'0.65rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-                        </div>
-                      );
-                    })}
+                    {(form.images||[]).map((src,i)=>(
+                      <div key={i} style={{position:'relative'}}>
+                        <img src={src} alt="" style={{width:'100%',height:70,objectFit:'cover',borderRadius:4,display:'block'}}/>
+                        <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
+                          style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:18,height:18,fontSize:'0.6rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                      </div>
+                    ))}
                   </div>
                 )}
-                <input ref={imgRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={handleImg}/>
+                {(form.subcat!=='photo'&&form.cat!=='baseball')&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
+                <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'||form.cat==='baseball'} style={{display:'none'}} onChange={handleImg}/>
               </div>
-              <div className="fg"><label>본문</label><textarea rows={6} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
               <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
                 <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
                 <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.83rem'}}>대표 글로 고정 (전체 페이지)</label>
@@ -2910,8 +2340,7 @@ export default function App() {
             </div>
             <div className="modal-foot">
               <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
-              <button className="btn btn-outline" onClick={()=>requestSavePost(true)} disabled={!form.title} style={{opacity:form.title?1:0.4,borderColor:'#827717',color:'#827717'}}>🗒️ 임시저장</button>
-              <button className="btn btn-primary" onClick={()=>requestSavePost(false)} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
+              <button className="btn btn-primary" onClick={savePost} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
             </div>
           </>)}
 
