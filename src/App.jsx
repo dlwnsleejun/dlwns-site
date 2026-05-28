@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 // ⚠️  【필수】 아래 두 줄을 본인의 Supabase 실제 값으로 교체하세요
 // Supabase 대시보드 → Settings → API 에서 확인
 const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co"; // ← 실제 Project URL
-const SUPA_KEY = "sb_publishable_vXdC3qk-Ga0D5I_NnAakfg_SteBGROk"; // ← 실제 anon public key
+const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE"; // ← 실제 anon public key
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
@@ -40,6 +40,35 @@ async function dbUpsert(table, data) {
     if(!r.ok) { console.error("upsert error:", await r.text()); return null; }
     return r.json();
   } catch(e) { console.error(e); return null; }
+}
+// owner PK 단일행 테이블 전용 저장 — resolution=merge-duplicates 대신
+// GET으로 존재 확인 → 있으면 PATCH / 없으면 POST (훨씬 안정적)
+async function dbSaveOwner(table, owner, data) {
+  const base = `${SUPA_URL}/rest/v1/${table}`;
+  const h = H();
+  try {
+    const checkR = await fetch(`${base}?owner=eq.${owner}&limit=1`, { headers: h });
+    if(!checkR.ok) {
+      const t = await checkR.text();
+      console.error(`[dbSaveOwner] GET failed (${table}):`, t);
+      return { ok: false, error: t };
+    }
+    const exists = (await checkR.json()).length > 0;
+    const r = await fetch(exists ? `${base}?owner=eq.${owner}` : base, {
+      method: exists ? 'PATCH' : 'POST',
+      headers: h,
+      body: JSON.stringify(exists ? { data } : { owner, data })
+    });
+    if(!r.ok) {
+      const t = await r.text();
+      console.error(`[dbSaveOwner] ${exists?'PATCH':'POST'} failed (${table}):`, t);
+      return { ok: false, error: t };
+    }
+    return { ok: true };
+  } catch(e) {
+    console.error('[dbSaveOwner]', e);
+    return { ok: false, error: e.message };
+  }
 }
 async function dbDelete(table, filter) {
   try {
@@ -249,9 +278,14 @@ function InvestPortfolio() {
     setSaving(true);
     const now = new Date();
     const next = {...draft, updatedAt:`${now.getFullYear()}년 ${now.getMonth()+1}월 ${now.getDate()}일`};
-    const r = await dbUpsert('dlwns_portfolio', {owner: OWNER_ID, data: next});
-    if(r){ setPf(next); setEditMode(false); setDraft(null); }
-    else alert('저장 실패 — Supabase dlwns_portfolio 테이블을 확인해주세요.');
+    const result = await dbSaveOwner('dlwns_portfolio', OWNER_ID, next);
+    if(result.ok){ setPf(next); setEditMode(false); setDraft(null); }
+    else {
+      let msg = '포트폴리오 저장 실패\n\n';
+      try { const p=JSON.parse(result.error); msg += p.message||result.error; }
+      catch { msg += result.error||'알 수 없는 오류'; }
+      alert(msg);
+    }
     setSaving(false);
   };
 
@@ -260,16 +294,28 @@ function InvestPortfolio() {
     if(!noteText.trim()) return;
     setNoteSaving(true);
     const newNote = { id: Date.now(), date: noteDate, text: noteText.trim() };
-    const merged  = [newNote, ...notes].slice(0, 30); // 최근 30개 유지
-    const r = await dbUpsert('dlwns_market_notes', {owner: OWNER_ID, data: {notes: merged}});
-    if(r){ setNotes(merged); setNoteText(''); }
-    else alert('메모 저장 실패 — Supabase dlwns_market_notes 테이블을 확인해주세요.');
+    const merged  = [newNote, ...notes].slice(0, 30);
+    const result  = await dbSaveOwner('dlwns_market_notes', OWNER_ID, { notes: merged });
+    if(result.ok){
+      setNotes(merged);
+      setNoteText('');
+    } else {
+      // 실제 Supabase 에러 메시지 표시 (원인 파악용)
+      let msg = '메모 저장 실패\n\n';
+      try {
+        const parsed = JSON.parse(result.error);
+        if(parsed.message) msg += parsed.message;
+        else msg += result.error;
+      } catch { msg += result.error || '알 수 없는 오류'; }
+      msg += '\n\n※ dlwns_market_notes 테이블이 Supabase에 생성되어 있는지, RLS 정책이 설정되어 있는지 확인하세요.';
+      alert(msg);
+    }
     setNoteSaving(false);
   };
   const delNote = async (id) => {
     if(!confirm('이 메모를 삭제할까요?')) return;
     const merged = notes.filter(n=>n.id!==id);
-    await dbUpsert('dlwns_market_notes', {owner: OWNER_ID, data: {notes: merged}});
+    await dbSaveOwner('dlwns_market_notes', OWNER_ID, { notes: merged });
     setNotes(merged);
   };
 
