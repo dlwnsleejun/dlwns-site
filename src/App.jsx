@@ -154,6 +154,94 @@ function getTodayKr() {
   return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
 }
 
+// ─── 리치 텍스트 에디터 컴포넌트 ─────────────────────────────────────────────
+const HIGHLIGHT_COLORS = [
+  { bg:'#FFFF00', name:'노랑' },
+  { bg:'#ADFF2F', name:'연두' },
+  { bg:'#FFB6C1', name:'분홍' },
+  { bg:'#ADD8E6', name:'하늘' },
+  { bg:'#E8D5FF', name:'보라' },
+];
+
+function RichEditor({ value, onChange, placeholder }) {
+  const ref = useRef(null);
+  useEffect(()=>{
+    if(ref.current) ref.current.innerHTML = value || '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const exec = (cmd, val=null) => {
+    ref.current.focus();
+    document.execCommand(cmd, false, val);
+    onChange(ref.current.innerHTML);
+  };
+
+  return (
+    <div>
+      <div className="editor-toolbar">
+        {/* 서식 */}
+        <button className="editor-btn" title="굵게 (Ctrl+B)"    onMouseDown={e=>{e.preventDefault();exec('bold');}}>          <b>B</b></button>
+        <button className="editor-btn" title="기울임 (Ctrl+I)"  onMouseDown={e=>{e.preventDefault();exec('italic');}}>        <i style={{fontStyle:'italic'}}>I</i></button>
+        <button className="editor-btn" title="밑줄 (Ctrl+U)"    onMouseDown={e=>{e.preventDefault();exec('underline');}}>     <u>U</u></button>
+        <button className="editor-btn" title="취소선"            onMouseDown={e=>{e.preventDefault();exec('strikeThrough');}}> <s>S</s></button>
+        <div className="editor-sep"/>
+        {/* 글자 크기 */}
+        <select title="글자 크기"
+          style={{border:'1px solid #dee2e6',borderRadius:4,padding:'4px 5px',fontSize:'0.78rem',cursor:'pointer',background:'#fff',color:'#333'}}
+          onMouseDown={e=>e.stopPropagation()}
+          onChange={e=>{ if(e.target.value) exec('fontSize', e.target.value); e.target.value=''; }}>
+          <option value="">크기▾</option>
+          <option value="2">작게</option>
+          <option value="3">보통</option>
+          <option value="5">크게</option>
+          <option value="6">아주 크게</option>
+        </select>
+        <div className="editor-sep"/>
+        {/* 형광펜 */}
+        <span style={{fontSize:'0.72rem',color:'#888',marginRight:2,userSelect:'none'}}>형광펜</span>
+        {HIGHLIGHT_COLORS.map(h=>(
+          <button key={h.bg} title={h.name}
+            onMouseDown={e=>{ e.preventDefault(); exec('hiliteColor', h.bg); }}
+            style={{width:20,height:20,background:h.bg,border:'1.5px solid #ccc',borderRadius:3,cursor:'pointer',padding:0,flexShrink:0}}/>
+        ))}
+        <button title="형광펜 지우기"
+          onMouseDown={e=>{ e.preventDefault(); exec('hiliteColor','transparent'); }}
+          style={{width:20,height:20,background:'#fff',border:'1.5px solid #ccc',borderRadius:3,cursor:'pointer',padding:0,flexShrink:0,
+                  backgroundImage:'repeating-linear-gradient(45deg,#ccc,#ccc 2px,#fff 2px,#fff 6px)'}}/>
+        <div className="editor-sep"/>
+        {/* 정렬 */}
+        <button className="editor-btn" title="왼쪽 정렬"   onMouseDown={e=>{e.preventDefault();exec('justifyLeft');}}>◀</button>
+        <button className="editor-btn" title="가운데 정렬" onMouseDown={e=>{e.preventDefault();exec('justifyCenter');}}>☰</button>
+        <button className="editor-btn" title="오른쪽 정렬" onMouseDown={e=>{e.preventDefault();exec('justifyRight');}}>▶</button>
+        <div className="editor-sep"/>
+        {/* 목록 */}
+        <button className="editor-btn" title="• 목록"     onMouseDown={e=>{e.preventDefault();exec('insertUnorderedList');}}>• 목록</button>
+        <button className="editor-btn" title="번호 목록"  onMouseDown={e=>{e.preventDefault();exec('insertOrderedList');}}>① 목록</button>
+        <div className="editor-sep"/>
+        {/* 블록 스타일 */}
+        <button className="editor-btn" style={{fontWeight:700,fontSize:'0.82rem'}} title="제목(H2)" onMouseDown={e=>{e.preventDefault();exec('formatBlock','h2');}}>H2</button>
+        <button className="editor-btn" style={{fontWeight:600,fontSize:'0.78rem'}} title="소제목(H3)" onMouseDown={e=>{e.preventDefault();exec('formatBlock','h3');}}>H3</button>
+        <button className="editor-btn" style={{fontSize:'0.78rem'}} title="본문으로 되돌리기" onMouseDown={e=>{e.preventDefault();exec('formatBlock','p');}}>본문</button>
+      </div>
+      {/* 에디터 본문 영역 */}
+      <div
+        ref={ref}
+        contentEditable
+        suppressContentEditableWarning
+        className="editor-content"
+        data-placeholder={placeholder||"내용을 작성하세요..."}
+        onInput={e=>onChange(e.currentTarget.innerHTML)}
+        onPaste={e=>{
+          e.preventDefault();
+          const text = e.clipboardData.getData('text/plain');
+          document.execCommand('insertText', false, text);
+          onChange(ref.current.innerHTML);
+        }}
+      />
+    </div>
+  );
+}
+
 // ─── AI Market Data (Anthropic API + Web Search) ──────────────────────────────
 // Yahoo Finance CORS 문제 해결: Claude API가 웹검색으로 실시간 데이터 수집
 // ─── 투자 포트폴리오 기본 데이터 (원화 기준, Supabase에 없을 때 fallback) ─────
@@ -902,6 +990,46 @@ canvas{width:100%!important;display:block;}
 .detail-meta{font-size:0.76rem;color:var(--muted);padding-bottom:22px;border-bottom:1px solid var(--border);margin-bottom:24px;display:flex;gap:10px;align-items:center;}
 .detail-img{width:100%;max-height:420px;object-fit:cover;border-radius:var(--radius);margin-bottom:24px;}
 .detail-body{font-size:0.98rem;line-height:2;color:#222;}
+.detail-body h1{font-size:1.8rem;font-weight:700;line-height:1.3;margin:20px 0 10px;}
+.detail-body h2{font-size:1.45rem;font-weight:700;line-height:1.35;margin:16px 0 8px;}
+.detail-body h3{font-size:1.15rem;font-weight:700;margin:12px 0 6px;}
+.detail-body p{margin:0;min-height:1.6em;}
+.detail-body strong,.detail-body b{font-weight:700;}
+.detail-body em,.detail-body i{font-style:italic;}
+.detail-body u{text-decoration:underline;}
+.detail-body s{text-decoration:line-through;}
+.detail-body mark{padding:1px 3px;border-radius:2px;}
+.detail-body ul{list-style:disc;padding-left:24px;margin:6px 0;}
+.detail-body ol{list-style:decimal;padding-left:24px;margin:6px 0;}
+.detail-body li{margin:2px 0;}
+/* ── 전체화면 글쓰기 에디터 ── */
+.editor-overlay{position:fixed;inset:0;background:#fff;z-index:400;display:flex;flex-direction:column;overflow:hidden;}
+.editor-topbar{display:flex;align-items:center;gap:8px;padding:8px 16px;border-bottom:1px solid var(--border);background:#fff;flex-shrink:0;}
+.editor-topbar-left{display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap;}
+.editor-topbar-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.editor-back-btn{background:none;border:none;font-size:1.1rem;cursor:pointer;color:var(--muted);padding:4px 8px;border-radius:4px;line-height:1;}
+.editor-back-btn:hover{background:#f0f0f0;color:#111;}
+.editor-scroll{flex:1;overflow-y:auto;}
+.editor-inner{max-width:720px;margin:0 auto;padding:28px 28px 120px;}
+.editor-title-input{display:block;width:100%;border:none;outline:none;font-size:1.85rem;font-weight:700;line-height:1.3;font-family:'Noto Sans KR',sans-serif;color:#111;padding:0;margin-bottom:8px;resize:none;background:transparent;overflow:hidden;}
+.editor-title-input::placeholder{color:#ccc;}
+.editor-summary-input{display:block;width:100%;border:none;outline:none;font-size:1rem;line-height:1.6;color:var(--muted);font-family:'Noto Sans KR',sans-serif;padding:0;margin-bottom:18px;resize:none;background:transparent;}
+.editor-summary-input::placeholder{color:#ccc;}
+.editor-divider{border:none;border-top:1px solid var(--border);margin:18px 0;}
+.editor-toolbar{display:flex;align-items:center;gap:2px;padding:6px 10px;background:#f8f9fa;border:1px solid var(--border);border-radius:8px;flex-wrap:wrap;gap:3px;margin-bottom:0px;position:sticky;top:0;z-index:5;}
+.editor-btn{background:none;border:none;padding:5px 9px;cursor:pointer;font-size:0.85rem;border-radius:4px;color:#333;font-weight:500;line-height:1.2;transition:background 0.1s;white-space:nowrap;}
+.editor-btn:hover{background:#e2e6ea;}
+.editor-sep{width:1px;height:18px;background:#dee2e6;margin:0 2px;flex-shrink:0;}
+.editor-content{min-height:420px;outline:none;font-size:0.98rem;line-height:2;color:#222;font-family:'Noto Sans KR',sans-serif;padding:16px 0 0;}
+.editor-content:empty:before{content:attr(data-placeholder);color:#bbb;pointer-events:none;display:block;}
+.editor-content h1{font-size:1.8rem;font-weight:700;line-height:1.3;margin:16px 0 8px;}
+.editor-content h2{font-size:1.45rem;font-weight:700;line-height:1.35;margin:12px 0 6px;}
+.editor-content h3{font-size:1.15rem;font-weight:700;margin:10px 0 4px;}
+.editor-content p{margin:0;min-height:1.6em;}
+.editor-content mark{padding:1px 3px;border-radius:2px;}
+.editor-content ul{list-style:disc;padding-left:24px;margin:4px 0;}
+.editor-content ol{list-style:decimal;padding-left:24px;margin:4px 0;}
+.editor-content li{margin:2px 0;}
 .btn-sm{background:#fff;border:1px solid var(--border);padding:5px 11px;font-size:0.68rem;cursor:pointer;border-radius:4px;color:var(--text);font-weight:500;}
 .btn-sm:hover{border-color:#999;}
 .btn-del-sm{background:#fff;border:1px solid #fcc;color:var(--red);padding:5px 9px;font-size:0.68rem;cursor:pointer;border-radius:4px;font-weight:500;}
@@ -1496,15 +1624,13 @@ export default function App() {
   const handleImg = async e => {
     const files = Array.from(e.target.files);
     if(!files.length) return;
-    if(form.subcat === 'photo' || form.cat === 'baseball') {
-      // 오늘의 사진 & 야구: 여러 장
-      const newImgs = await Promise.all(files.map(f=>toB64(f)));
-      setForm(prev=>({...prev, images:[...(prev.images||[]),...newImgs]}));
-    } else {
-      // 다른 카테고리: 대표 이미지 1장
-      const b64 = await toB64(files[0]);
-      setForm(prev=>({...prev, img:b64}));
-    }
+    const newImgs = await Promise.all(files.map(f=>toB64(f)));
+    setForm(prev=>{
+      const merged = [...(prev.images||[]), ...newImgs];
+      // img(대표) = 첫 번째 이미지로 동기화 (카드뷰 호환)
+      return {...prev, images: merged, img: merged[0] || prev.img};
+    });
+    e.target.value = '';
   };
   const handleAvatar = async e => {
     const f=e.target.files[0]; if(!f)return;
@@ -1641,9 +1767,12 @@ export default function App() {
             </div>
           ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
           <div className="detail-body">
-            {(detail.body||detail.summary).split('\n').map((line,i)=>(
-              line.trim()==='' ? <br key={i}/> : <p key={i} style={{margin:0,minHeight:'1.4em'}}>{line}</p>
-            ))}
+            {/<[a-z][\s\S]*>/i.test(detail.body||'')
+              ? <div dangerouslySetInnerHTML={{__html: detail.body}}/>
+              : (detail.body||detail.summary).split('\n').map((line,i)=>(
+                  line.trim()==='' ? <br key={i}/> : <p key={i} style={{margin:0,minHeight:'1.4em'}}>{line}</p>
+                ))
+            }
           </div>
 
           {/* comment section */}
@@ -2270,12 +2399,10 @@ export default function App() {
     <footer><b>dlwnsleejun.com</b> — 이준 기록집</footer>
 
     {/* ── WRITE MODAL ── */}
-    {modal==='write'&&(
+    {/* ── WRITE MODAL: 음악 전용 (소형 모달 유지) ── */}
+    {modal==='write' && form.cat==='music' && (
       <div className="modal-bg" onClick={()=>setModal(null)}>
         <div className="modal" onClick={e=>e.stopPropagation()}>
-
-          {/* ── 뮤직 전용 폼 ── */}
-          {form.cat==='music' ? (<>
             <div className="modal-head">
               <div className="modal-title" style={{display:'flex',alignItems:'center',gap:8}}>
                 <span style={{fontSize:'1.2rem'}}>🎵</span>
@@ -2284,7 +2411,6 @@ export default function App() {
               <button className="modal-x" onClick={()=>setModal(null)}>✕</button>
             </div>
             <div className="modal-body">
-              {/* 유튜브 링크 미리보기 */}
               {(()=>{
                 const v = parseVideoUrl(form.videoUrl||'');
                 if(!v) return null;
@@ -2330,66 +2456,103 @@ export default function App() {
                 🎵 플레이리스트에 추가
               </button>
             </div>
-          </>) : (<>
+        </div>
+      </div>
+    )}
 
-          {/* ── 일반 글쓰기 폼 ── */}
-            <div className="modal-head"><div className="modal-title">{editing?'글 수정':'새 글 작성'}</div><button className="modal-x" onClick={()=>setModal(null)}>✕</button></div>
-            <div className="modal-body">
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-                <div className="fg"><label>카테고리</label>
-                  <select value={form.cat} onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
-                    {CATS.slice(1).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-                  </select>
-                </div>
-                <div className="fg"><label>서브카테고리</label>
-                  <select value={form.subcat} onChange={e=>setForm({...form,subcat:e.target.value})}>
-                    {(SUBCATS[form.cat]||[]).map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
-                  </select>
-                </div>
-              </div>
-              <div className="fg"><label>제목</label><input type="text" value={form.title} placeholder="제목을 입력하세요" onChange={e=>setForm({...form,title:e.target.value})}/></div>
-              <div className="fg"><label>요약</label><textarea rows={2} value={form.summary} placeholder="한 줄 요약" onChange={e=>setForm({...form,summary:e.target.value})}/></div>
-              <div className="fg"><label>본문</label><textarea rows={5} value={form.body} placeholder="내용을 작성하세요" onChange={e=>setForm({...form,body:e.target.value})}/></div>
-              {(form.cat==='inspiration') && (
-                <div className="fg">
-                  <label>영상 URL (유튜브 / 쇼츠 / 인스타 릴스)</label>
-                  <input type="text" value={form.videoUrl} placeholder="https://www.youtube.com/watch?v=... 또는 https://www.instagram.com/reel/..." onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
-                  <div className="video-hint">유튜브, 유튜브 쇼츠, 인스타그램 릴스 링크를 입력하세요</div>
+    {/* ── 전체화면 글쓰기 에디터 (음악 제외) ── */}
+    {modal==='write' && form.cat!=='music' && (
+      <div className="editor-overlay">
+        {/* 상단 바 */}
+        <div className="editor-topbar">
+          <div className="editor-topbar-left">
+            <button className="editor-back-btn" onClick={()=>setModal(null)} title="닫기">✕ 닫기</button>
+            <div className="editor-sep" style={{height:20}}/>
+            <select value={form.cat} style={{border:'1px solid var(--border)',borderRadius:6,padding:'5px 8px',fontSize:'0.8rem',cursor:'pointer',background:'#fff'}}
+              onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
+              {CATS.slice(1).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <select value={form.subcat} style={{border:'1px solid var(--border)',borderRadius:6,padding:'5px 8px',fontSize:'0.8rem',cursor:'pointer',background:'#fff'}}
+              onChange={e=>setForm({...form,subcat:e.target.value})}>
+              {(SUBCATS[form.cat]||[]).map(s=><option key={s.id||s} value={s.id||s}>{s.label||s}</option>)}
+            </select>
+          </div>
+          <div className="editor-topbar-right">
+            <label style={{display:'flex',alignItems:'center',gap:5,fontSize:'0.8rem',cursor:'pointer',color:'var(--muted)'}}>
+              <input type="checkbox" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
+              고정
+            </label>
+            <button className="btn btn-outline" style={{padding:'6px 14px',fontSize:'0.82rem'}} onClick={()=>setModal(null)}>취소</button>
+            <button className="btn btn-primary" style={{padding:'6px 16px',fontSize:'0.82rem',opacity:form.title?1:0.4}}
+              onClick={savePost} disabled={!form.title}>
+              {editing ? '수정 저장' : '게시하기'}
+            </button>
+          </div>
+        </div>
+
+        {/* 본문 스크롤 영역 */}
+        <div className="editor-scroll">
+          <div className="editor-inner">
+            {/* 카테고리 뱃지 (미리보기) */}
+            <div style={{marginBottom:12}}>
+              <span style={{fontSize:'0.7rem',fontWeight:700,letterSpacing:'0.08em',color:CATS.find(c=>c.id===form.cat)?.color||'#666',textTransform:'uppercase'}}>
+                {CATS.find(c=>c.id===form.cat)?.label||form.cat}
+                {form.subcat && form.subcat!=='all' && form.subcat!=='전체' ? ` · ${form.subcat}` : ''}
+              </span>
+            </div>
+
+            {/* 제목 */}
+            <textarea className="editor-title-input" rows={1} placeholder="제목을 입력하세요"
+              value={form.title}
+              onChange={e=>{ setForm({...form,title:e.target.value}); e.target.style.height='auto'; e.target.style.height=e.target.scrollHeight+'px'; }}
+              onFocus={e=>{ e.target.style.height='auto'; e.target.style.height=e.target.scrollHeight+'px'; }}
+            />
+
+            {/* 요약 */}
+            <textarea className="editor-summary-input" rows={1} placeholder="한 줄 요약 (선택)"
+              value={form.summary}
+              onChange={e=>{ setForm({...form,summary:e.target.value}); e.target.style.height='auto'; e.target.style.height=e.target.scrollHeight+'px'; }}
+            />
+
+            {/* 유튜브 링크 */}
+            <div style={{marginBottom:14}}>
+              <input type="text" value={form.videoUrl} placeholder="🎬 유튜브 링크 (선택) — 본문 위에 영상이 표시됩니다"
+                style={{width:'100%',border:'none',borderBottom:'1px dashed var(--border)',outline:'none',padding:'6px 0',fontSize:'0.85rem',color:'var(--sub)',background:'transparent',fontFamily:'inherit'}}
+                onChange={e=>setForm({...form,videoUrl:e.target.value})}/>
+            </div>
+
+            {/* 사진 업로드 */}
+            <div style={{marginBottom:14}}>
+              <button className="btn btn-outline" style={{fontSize:'0.78rem',padding:'5px 12px'}}
+                onClick={()=>imgRef.current.click()}>
+                📷 사진 추가
+              </button>
+              {(form.images||[]).length>0 && (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(100px,1fr))',gap:6,marginTop:8}}>
+                  {(form.images||[]).map((src,i)=>(
+                    <div key={i} style={{position:'relative'}}>
+                      <img src={src} alt="" style={{width:'100%',height:90,objectFit:'cover',borderRadius:6,display:'block'}}/>
+                      <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
+                        style={{position:'absolute',top:3,right:3,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:20,height:20,fontSize:'0.7rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
+                    </div>
+                  ))}
                 </div>
               )}
-              <div className="fg">
-                <label>대표 이미지</label>
-                <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                  <button className="btn btn-outline" style={{padding:'7px 12px',fontSize:'0.76rem'}} onClick={()=>imgRef.current.click()}>
-                    {(form.subcat==="photo"||form.cat==="baseball")?"사진 여러 장 선택":"파일 선택"}
-                  </button>
-                  {form.img&&<span style={{fontSize:'0.7rem',color:'var(--green)'}}>✓ 업로드됨</span>}
-                </div>
-                {(form.subcat==='photo'||form.cat==='baseball')&&(form.images||[]).length>0&&(
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginTop:8}}>
-                    {(form.images||[]).map((src,i)=>(
-                      <div key={i} style={{position:'relative'}}>
-                        <img src={src} alt="" style={{width:'100%',height:70,objectFit:'cover',borderRadius:4,display:'block'}}/>
-                        <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
-                          style={{position:'absolute',top:2,right:2,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:18,height:18,fontSize:'0.6rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {(form.subcat!=='photo'&&form.cat!=='baseball')&&form.img&&<img src={form.img} alt="" style={{width:'100%',maxHeight:140,objectFit:'cover',marginTop:8,borderRadius:6}}/>}
-                <input ref={imgRef} type="file" accept="image/*" multiple={form.subcat==='photo'||form.cat==='baseball'} style={{display:'none'}} onChange={handleImg}/>
-              </div>
-              <div className="fg" style={{display:'flex',gap:8,alignItems:'center'}}>
-                <input type="checkbox" id="pin" checked={form.pinned} onChange={e=>setForm({...form,pinned:e.target.checked})} style={{width:'auto',margin:0}}/>
-                <label htmlFor="pin" style={{margin:0,cursor:'pointer',fontSize:'0.83rem'}}>대표 글로 고정 (전체 페이지)</label>
-              </div>
+              {(form.images||[]).length===0 && form.img && (
+                <img src={form.img} alt="" style={{width:'100%',maxHeight:200,objectFit:'cover',marginTop:8,borderRadius:8}}/>
+              )}
+              <input ref={imgRef} type="file" accept="image/*" multiple style={{display:'none'}} onChange={handleImg}/>
             </div>
-            <div className="modal-foot">
-              <button className="btn btn-outline" onClick={()=>setModal(null)}>취소</button>
-              <button className="btn btn-primary" onClick={savePost} disabled={!form.title} style={{opacity:form.title?1:0.4}}>저장</button>
-            </div>
-          </>)}
 
+            <hr className="editor-divider"/>
+
+            {/* 리치 텍스트 에디터 */}
+            <RichEditor
+              value={form.body}
+              onChange={v=>setForm(prev=>({...prev,body:v}))}
+              placeholder="내용을 작성하세요..."
+            />
+          </div>
         </div>
       </div>
     )}
