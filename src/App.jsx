@@ -1758,14 +1758,21 @@ export default function App() {
             <button className="btn-del-sm" onClick={()=>requestDelete(detail.id,detail.title)}>삭제</button>
           </div>
           {detail.videoUrl && renderVideo(detail)}
-          {/* 야구 or 오늘의 사진: 대형 그리드 */}
-          {(detail.cat==='baseball' || detail.subcat==='photo') && (detail.images||[]).length>0 ? (
-            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12,marginBottom:24}}>
-              {(detail.images||[]).map((src,i)=>(
-                <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,display:'block'}}/>
-              ))}
-            </div>
-          ) : detail.img ? <img className="detail-img" src={detail.img} alt=""/> : null}
+          {/* 이미지 표시: images 배열 우선, 없으면 img 단일 fallback */}
+          {(()=>{
+            const imgs = (detail.images && detail.images.length > 0)
+              ? detail.images
+              : (detail.img ? [detail.img] : []);
+            if(imgs.length === 0) return null;
+            if(imgs.length === 1) return <img className="detail-img" src={imgs[0]} alt=""/>;
+            return (
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:8,marginBottom:24}}>
+                {imgs.map((src,i)=>(
+                  <img key={i} src={src} alt="" style={{width:'100%',aspectRatio:'4/3',objectFit:'cover',borderRadius:8,display:'block'}}/>
+                ))}
+              </div>
+            );
+          })()}
           <div className="detail-body">
             {/<[a-z][\s\S]*>/i.test(detail.body||'')
               ? <div dangerouslySetInnerHTML={{__html: detail.body}}/>
