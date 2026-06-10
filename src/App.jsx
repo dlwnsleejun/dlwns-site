@@ -7,6 +7,9 @@ const SUPA_URL = "https://uxqbfbjniweabkecfhjp.supabase.co"; // ← 실제 Proje
 const SUPA_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV4cWJmYmpuaXdlYWJrZWNmaGpwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwOTYyMjQsImV4cCI6MjA5MzY3MjIyNH0.b9_xAWctaWOB8n4fOuopfKqj-2GC-GHTQp2fXpRn0TE"; // ← 실제 anon public key
 const OWNER_ID = "dlwnsleejun"; // 고정값, 변경 금지
 
+// ── 작성자 인증 PIN (배포 전 원하는 숫자/문자로 변경) ──
+const OWNER_PIN = "351224"; // ← 여기를 원하는 인증번호로 변경하세요
+
 // ─── Supabase REST helpers ────────────────────────────────────────────────────
 const H = () => ({
   "Content-Type": "application/json",
@@ -233,6 +236,7 @@ function RichEditor({ value, onChange, placeholder }) {
         onInput={e=>onChange(e.currentTarget.innerHTML)}
         onPaste={e=>{
           e.preventDefault();
+          // 클립보드에서 plain text만 삽입 (외부 HTML 스타일 오염 방지)
           const text = e.clipboardData.getData('text/plain');
           document.execCommand('insertText', false, text);
           onChange(ref.current.innerHTML);
@@ -268,7 +272,9 @@ const fmtKrw = (v) => {
 };
 const fmtKrwFull = (v) => `${v.toLocaleString()}원`;
 
-function InvestPortfolio() {
+function InvestPortfolio({ requireAuth }) {
+  // requireAuth가 없으면 (호출 오류 방어) 무조건 통과
+  const authWrap = requireAuth || ((fn)=>fn());
   // ── 포트폴리오 (Supabase 연동) ──
   const [pf, setPf]         = useState(DEFAULT_PORTFOLIO);
   const [pfLoaded, setPfLoaded] = useState(false);
@@ -417,7 +423,7 @@ function InvestPortfolio() {
           총 {fmtKrwFull(totalKrw)}
         </span>
         {!editMode && (
-          <button onClick={startEdit}
+          <button onClick={()=>authWrap(startEdit)}
             style={{marginLeft:'auto',fontSize:'0.78rem',padding:'5px 14px',background:'#fff',border:'1px solid #1B5E20',color:'#1B5E20',borderRadius:6,cursor:'pointer',fontWeight:600}}>
             ✏️ 편집
           </button>
@@ -567,7 +573,7 @@ function InvestPortfolio() {
             style={{width:'100%',padding:'8px 10px',border:'1px solid #ddd',borderRadius:6,fontSize:'0.85rem',fontFamily:'inherit',resize:'vertical',boxSizing:'border-box'}}
           />
           <div style={{display:'flex',justifyContent:'flex-end'}}>
-            <button onClick={saveNote} disabled={noteSaving||!noteText.trim()}
+            <button onClick={()=>authWrap(saveNote)} disabled={noteSaving||!noteText.trim()}
               style={{padding:'7px 20px',background:noteText.trim()?'#1B5E20':'#bbb',color:'#fff',border:'none',borderRadius:6,cursor:noteText.trim()?'pointer':'not-allowed',fontWeight:600,fontSize:'0.85rem'}}>
               {noteSaving ? '저장 중…' : '저장'}
             </button>
@@ -1379,6 +1385,32 @@ export default function App() {
   const [dragIdx,setDragIdx] = useState(null);
   // DB 진단 모달
   const [dbDiag,setDbDiag] = useState(null); // null | {rows, raw}
+
+  // ── 작성자 인증 (sessionStorage: 새로고침 유지, 탭 닫으면 초기화) ───────────
+  const [isAuthed,   setIsAuthed]   = useState(()=>sessionStorage.getItem('dlwns_auth')==='1');
+  const [pinModal,   setPinModal]   = useState(false);
+  const [pinInput,   setPinInput]   = useState('');
+  const [pinError,   setPinError]   = useState('');
+  const [pendingAct, setPendingAct] = useState(null);
+
+  const requireAuth = (action) => {
+    if(isAuthed){ action(); return; }
+    setPendingAct(()=>action);
+    setPinInput(''); setPinError('');
+    setPinModal(true);
+  };
+  const submitPin = () => {
+    if(pinInput === OWNER_PIN){
+      sessionStorage.setItem('dlwns_auth','1');
+      setIsAuthed(true);
+      setPinModal(false);
+      setPinInput(''); setPinError('');
+      if(pendingAct){ pendingAct(); setPendingAct(null); }
+    } else {
+      setPinError('인증번호가 올바르지 않습니다.');
+      setPinInput('');
+    }
+  };
   const imgRef=useRef(); const avatarRef=useRef();
   const postsRef=useRef([]);
   const iframeRef=useRef();
@@ -1478,14 +1510,18 @@ export default function App() {
   // ── CRUD ───────────────────────────────────────────────────────────────────
   const savePost = async () => {
     const today=new Date().toISOString().slice(0,10);
+    // images 배열이 있으면 img(카드뷰 썸네일)를 첫 번째 이미지로 동기화
+    const syncedImg = (form.images && form.images.length > 0)
+      ? form.images[0]
+      : form.img;
+    const syncedForm = { ...form, img: syncedImg };
     const newPost = editing
-      ? {...posts.find(p=>p.id===editing.id), ...form}
-      : {id:Date.now(),...form,date:today};
+      ? {...posts.find(p=>p.id===editing.id), ...syncedForm}
+      : {id:Date.now(),...syncedForm,date:today};
     const u = editing
       ? posts.map(p=>p.id===editing.id?newPost:p)
       : [newPost,...posts];
     setPosts(u); postsRef.current=u;
-    // Supabase 저장
     await dbUpsert("dlwns_posts", { post_id: newPost.id, owner: OWNER_ID, data: newPost });
     setModal(null); setEditing(null);
     setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});
@@ -1607,8 +1643,8 @@ export default function App() {
     setDragIdx(null);
   };
 
-  const requestEdit   = (p) => setConfirmAction({type:'edit',   data:p});
-  const requestDelete = (id,title) => setConfirmAction({type:'delete', data:{id,title}});
+  const requestEdit   = (p)        => requireAuth(()=>setConfirmAction({type:'edit',   data:p}));
+  const requestDelete = (id,title) => requireAuth(()=>setConfirmAction({type:'delete', data:{id,title}}));
   const confirmEdit   = () => { openEdit(confirmAction.data); setConfirmAction(null); };
   const confirmDelete = () => { delPost(confirmAction.data.id); setConfirmAction(null); };
   const openEdit = p => {
@@ -1733,14 +1769,14 @@ export default function App() {
                   <button style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:'11px 16px',background:'none',border:'none',fontSize:'0.83rem',cursor:'pointer',color:'var(--text)',textAlign:'left'}}
                     onMouseEnter={e=>e.currentTarget.style.background='#f5f5f5'}
                     onMouseLeave={e=>e.currentTarget.style.background='none'}
-                    onClick={()=>{ setSettingsOpen(false); setPrForm({...profile}); setModal('profile'); }}>
+                    onClick={()=>{ setSettingsOpen(false); requireAuth(()=>{ setPrForm({...profile}); setModal('profile'); }); }}>
                     <span>👤</span> 프로필 편집
                   </button>
                 </div>
               </>
             )}
           </div>
-          <button className="btn btn-primary" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 글쓰기</button>
+          <button className="btn btn-primary" onClick={()=>requireAuth(()=>{setEditing(null);setForm({title:"",summary:"",cat:isAll?"insight":activeCat==='invest'?"insight":activeCat,subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');})}>+ 글쓰기</button>
         </div>
       </div>
     </header>
@@ -1854,7 +1890,7 @@ export default function App() {
             <div className="hero-content">
               <h1>이준 기록집</h1>
               <div className="hero-actions" style={{marginTop:24}}>
-                <button className="btn btn-lg btn-white" onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>{'+ 새 글 작성'}</button>
+                <button className="btn btn-lg btn-white" onClick={()=>requireAuth(()=>{setEditing(null);setForm({title:"",summary:"",cat:"insight",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');})}>{'+ 새 글 작성'}</button>
                 <button className="btn btn-lg btn-outline-white" onClick={()=>{
                   setShowAllMode(true);
                   setTimeout(()=>{
@@ -1978,7 +2014,7 @@ export default function App() {
                     return (
                       <div key={i}
                         className={`cal-cell${!c.cur?' other-month':''}${isToday?' today':''}`}
-                        onClick={()=>{ if(c.cur){ setCalModalDate(c.key); setCalNewText(""); setCalNewColor("#0052CC"); } }}
+                        onClick={()=>{ if(c.cur){ requireAuth(()=>{ setCalModalDate(c.key); setCalNewText(""); setCalNewColor("#0052CC"); }); } }}
                       >
                         <div className="cal-day">
                           {isToday ? <span className="cal-day-inner">{c.day}</span> : c.day}
@@ -2137,7 +2173,7 @@ export default function App() {
             activeCat==='invest' ? (
               /* ── INVEST PORTFOLIO VIEW ── */
               <div style={{gridColumn:'1/-1'}}>
-                <InvestPortfolio />
+                <InvestPortfolio requireAuth={requireAuth} />
               </div>
             ) : activeCat==='music' ? (
               /* ── MUSIC PLAYLIST VIEW ── */
@@ -2226,7 +2262,7 @@ export default function App() {
                     <div className="empty-icon">🎵</div>
                     <div className="empty-title">플레이리스트가 비어있어요</div>
                     <div className="empty-desc">유튜브 링크와 함께 음악을 추가해보세요!</div>
-                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 음악 추가</button>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>requireAuth(()=>{setEditing(null);setForm({title:"",summary:"",cat:"music",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');})}>+ 음악 추가</button>
                   </div>
                 )}
               </div>
@@ -2270,7 +2306,7 @@ export default function App() {
                     <div className="empty-icon">⚾</div>
                     <div className="empty-title">야구 기록이 없어요</div>
                     <div className="empty-desc">직관 사진과 함께 야구 기록을 남겨보세요!</div>
-                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 야구 기록 추가</button>
+                    <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>requireAuth(()=>{setEditing(null);setForm({title:"",summary:"",cat:"baseball",subcat:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');})}>+ 야구 기록 추가</button>
                   </div>
                 )}
               </div>
@@ -2304,7 +2340,7 @@ export default function App() {
                   {activeSub!=="all" ? `${subcats.find(s=>s.id===activeSub)?.label} 글이 아직 없어요` : `아직 ${catInfo?.label}에 글이 없어요`}
                 </div>
                 <div className="empty-desc">첫 번째 글을 작성해보세요!</div>
-                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');}}>+ 첫 글 작성하기</button>
+                <button className="btn btn-primary" style={{padding:'12px 28px',fontSize:'0.88rem'}} onClick={()=>requireAuth(()=>{setEditing(null);setForm({title:"",summary:"",cat:activeCat,subcat:activeSub!=="all"?activeSub:"all",body:"",img:"",images:[],pinned:false,videoUrl:""});setModal('write');})}>+ 첫 글 작성하기</button>
               </div>
             )
           )}
@@ -2539,7 +2575,10 @@ export default function App() {
                   {(form.images||[]).map((src,i)=>(
                     <div key={i} style={{position:'relative'}}>
                       <img src={src} alt="" style={{width:'100%',height:90,objectFit:'cover',borderRadius:6,display:'block'}}/>
-                      <button onClick={()=>setForm(prev=>({...prev,images:prev.images.filter((_,j)=>j!==i)}))}
+                      <button onClick={()=>setForm(prev=>{
+                          const nextImgs = prev.images.filter((_,j)=>j!==i);
+                          return {...prev, images:nextImgs, img:nextImgs[0]||''};
+                        })}
                         style={{position:'absolute',top:3,right:3,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:20,height:20,fontSize:'0.7rem',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>×</button>
                     </div>
                   ))}
@@ -2559,6 +2598,43 @@ export default function App() {
               onChange={v=>setForm(prev=>({...prev,body:v}))}
               placeholder="내용을 작성하세요..."
             />
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── PIN 인증 모달 ── */}
+    {pinModal&&(
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.55)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+           onClick={()=>{setPinModal(false);setPendingAct(null);}}>
+        <div onClick={e=>e.stopPropagation()}
+             style={{background:'#fff',borderRadius:14,padding:32,width:'100%',maxWidth:340,boxShadow:'0 8px 32px rgba(0,0,0,0.18)'}}>
+          <div style={{textAlign:'center',marginBottom:20}}>
+            <div style={{fontSize:'2rem',marginBottom:8}}>🔒</div>
+            <div style={{fontSize:'1.05rem',fontWeight:700,color:'#111'}}>작성자 인증</div>
+            <div style={{fontSize:'0.8rem',color:'var(--muted)',marginTop:4}}>인증번호를 입력하면 이 세션에서는<br/>다시 묻지 않습니다.</div>
+          </div>
+          <input
+            type="password"
+            value={pinInput}
+            onChange={e=>{setPinInput(e.target.value);setPinError('');}}
+            onKeyDown={e=>e.key==='Enter'&&submitPin()}
+            placeholder="인증번호 입력"
+            autoFocus
+            style={{display:'block',width:'100%',padding:'12px 14px',border:`2px solid ${pinError?'#e53935':'#ddd'}`,borderRadius:8,fontSize:'1.1rem',outline:'none',textAlign:'center',letterSpacing:'0.2em',marginBottom:10,boxSizing:'border-box',fontFamily:'monospace'}}
+          />
+          {pinError&&(
+            <div style={{fontSize:'0.8rem',color:'#e53935',textAlign:'center',marginBottom:10}}>{pinError}</div>
+          )}
+          <div style={{display:'flex',gap:8}}>
+            <button onClick={()=>{setPinModal(false);setPendingAct(null);setPinInput('');setPinError('');}}
+              style={{flex:1,padding:'10px',background:'#fff',border:'1px solid #ddd',borderRadius:8,cursor:'pointer',fontSize:'0.9rem',color:'var(--muted)'}}>
+              취소
+            </button>
+            <button onClick={submitPin} disabled={!pinInput}
+              style={{flex:2,padding:'10px',background:pinInput?'var(--primary)':'#bbb',color:'#fff',border:'none',borderRadius:8,cursor:pinInput?'pointer':'not-allowed',fontSize:'0.9rem',fontWeight:700}}>
+              확인
+            </button>
           </div>
         </div>
       </div>
