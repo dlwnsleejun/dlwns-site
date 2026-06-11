@@ -273,7 +273,7 @@ const fmtKrw = (v) => {
 const fmtKrwFull = (v) => `${v.toLocaleString()}원`;
 
 function InvestPortfolio({ requireAuth }) {
-  // requireAuth가 없으면 (호출 오류 방어) 무조건 통과
+  const isMobile = useIsMobile();
   const authWrap = requireAuth || ((fn)=>fn());
   // ── 포트폴리오 (Supabase 연동) ──
   const [pf, setPf]         = useState(DEFAULT_PORTFOLIO);
@@ -447,23 +447,36 @@ function InvestPortfolio({ requireAuth }) {
           </div>
           <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:10}}>
             {draft.items.map((it,i)=>(
-              <div key={i} style={{display:'grid',gridTemplateColumns:'34px 90px 130px 1fr 28px',gap:6,alignItems:'center'}}>
+              <div key={i} style={{display:'grid',gridTemplateColumns:isMobile?'34px 1fr 28px':'34px 90px 130px 1fr 28px',gap:6,alignItems:'flex-start',flexWrap:'wrap'}}>
                 <input type="color" value={it.color} onChange={e=>updateItem(i,'color',e.target.value)}
                   style={{width:34,height:30,border:'1px solid #ddd',borderRadius:4,padding:1,cursor:'pointer'}}/>
-                <input value={it.label} onChange={e=>updateItem(i,'label',e.target.value)} placeholder="종목"
-                  style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
-                <div style={{position:'relative'}}>
-                  <input type="number" value={it.krw} onChange={e=>updateItem(i,'krw',e.target.value)}
-                    placeholder="투자금액(원)" min={0}
-                    style={{width:'100%',padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
-                  {it.krw>0 && (
-                    <div style={{fontSize:'0.62rem',color:'#888',marginTop:1}}>{fmtKrw(it.krw)}</div>
-                  )}
-                </div>
-                <input value={it.desc} onChange={e=>updateItem(i,'desc',e.target.value)} placeholder="투자 근거"
-                  style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                {isMobile ? (
+                  <div style={{display:'flex',flexDirection:'column',gap:4}}>
+                    <input value={it.label} onChange={e=>updateItem(i,'label',e.target.value)} placeholder="종목"
+                      style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                    <input type="number" value={it.krw} onChange={e=>updateItem(i,'krw',e.target.value)}
+                      placeholder="투자금액(원)" min={0}
+                      style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                    {it.krw>0&&<div style={{fontSize:'0.62rem',color:'#888'}}>{fmtKrw(it.krw)}</div>}
+                    <input value={it.desc} onChange={e=>updateItem(i,'desc',e.target.value)} placeholder="투자 근거"
+                      style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                  </div>
+                ) : (
+                  <>
+                    <input value={it.label} onChange={e=>updateItem(i,'label',e.target.value)} placeholder="종목"
+                      style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                    <div style={{position:'relative'}}>
+                      <input type="number" value={it.krw} onChange={e=>updateItem(i,'krw',e.target.value)}
+                        placeholder="투자금액(원)" min={0}
+                        style={{width:'100%',padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                      {it.krw>0&&<div style={{fontSize:'0.62rem',color:'#888',marginTop:1}}>{fmtKrw(it.krw)}</div>}
+                    </div>
+                    <input value={it.desc} onChange={e=>updateItem(i,'desc',e.target.value)} placeholder="투자 근거"
+                      style={{padding:'5px 7px',border:'1px solid #ddd',borderRadius:4,fontSize:'0.78rem'}}/>
+                  </>
+                )}
                 <button onClick={()=>removeItem(i)}
-                  style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'1rem',lineHeight:1}}>×</button>
+                  style={{background:'transparent',border:'none',color:'#c62828',cursor:'pointer',fontSize:'1rem',lineHeight:1,paddingTop:6}}>×</button>
               </div>
             ))}
           </div>
@@ -492,7 +505,7 @@ function InvestPortfolio({ requireAuth }) {
       )}
 
       {/* ─── 차트 + 종목 리스트 ─── */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:28,alignItems:'start'}}>
+      <div style={{display:'grid',gridTemplateColumns:isMobile?'1fr':'1fr 1fr',gap:isMobile?20:28,alignItems:'start'}}>
         {/* 도넛 차트 */}
         <div>
           <div style={{position:'relative',width:'100%',height:280}}>
@@ -608,6 +621,17 @@ function InvestPortfolio({ requireAuth }) {
       </div>
     </div>
   );
+}
+
+// ─── 모바일 감지 훅 ────────────────────────────────────────────────────────────
+function useIsMobile() {
+  const [m, setM] = useState(()=>typeof window!=='undefined'&&window.innerWidth<=768);
+  useEffect(()=>{
+    const fn = ()=>setM(window.innerWidth<=768);
+    window.addEventListener('resize', fn);
+    return ()=>window.removeEventListener('resize', fn);
+  }, []);
+  return m;
 }
 
 // ─── 홈 할일 + 위클리 플래너 (로컬 저장) ──────────────────────────────────────
@@ -756,6 +780,13 @@ function TodoPlanner() {
 const HERO_BG = null;
 
 const CSS = `
+*,*::before,*::after{box-sizing:border-box;}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;}
+img,video{max-width:100%;height:auto;}
+/* iOS Safari에서 input 포커스 시 자동 확대 방지 */
+input,textarea,select{font-size:16px;}
+/* 탭 클릭 딜레이 제거 */
+a,button,[role=button]{touch-action:manipulation;}
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;800&family=Montserrat:wght@600;700;800&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{--primary:#0052CC;--text:#111;--sub:#444;--muted:#777;--border:#e0e0e0;--bg:#f7f8fa;--white:#fff;--red:#DE350B;--green:#00875A;--radius:8px;}
@@ -1082,7 +1113,118 @@ footer b{color:var(--primary);}
 .music-drag-handle:hover{opacity:1;}
 /* ── MUSIC PLAYER BAR BOTTOM ── */
 body.has-player{padding-bottom:76px;}
-`;
+
+/* ══════════════════════════════════════════════════════════
+   📱 MOBILE RESPONSIVE  (max-width: 768px)
+══════════════════════════════════════════════════════════ */
+@media (max-width:768px){
+  /* ── 헤더 ── */
+  .header-inner{padding:0 14px;height:auto;flex-wrap:wrap;gap:0;min-height:52px;}
+  .header-logo{font-size:1rem;padding:14px 0;}
+  .nav{order:3;width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;border-top:1px solid var(--border);padding:2px 0;}
+  .nav::-webkit-scrollbar{display:none;}
+  .nav-item{padding:10px 10px;font-size:0.78rem;white-space:nowrap;}
+  .header-actions{gap:5px;padding:10px 0;}
+  .btn.btn-primary{padding:6px 12px;font-size:0.8rem;}
+
+  /* ── 히어로 ── */
+  .hero{padding:36px 0 44px;min-height:auto;}
+  .hero-inner{grid-template-columns:1fr;gap:28px;padding:0 16px;text-align:center;}
+  .hero-title{font-size:1.8rem;}
+  .hero-sub{font-size:0.85rem;}
+  .hero-actions{justify-content:center;flex-wrap:wrap;}
+  .hero-card{display:none;}
+
+  /* ── 통계 바 ── */
+  .stats-inner{grid-template-columns:repeat(3,1fr);padding:0 14px;}
+  .stat-num{font-size:1.3rem;}
+  .stat-label{font-size:0.68rem;}
+
+  /* ── 메인 컨텐츠 ── */
+  .content-inner{grid-template-columns:1fr;padding:0 14px;gap:24px;}
+  .sidebar{display:none;}
+  .section-head{padding:0 14px;}
+
+  /* ── 피쳐드 카드 ── */
+  .featured{grid-template-columns:1fr;}
+  .f-img{height:200px;}
+
+  /* ── 포스트 그리드 ── */
+  .posts-grid{grid-template-columns:1fr;}
+  .posts-grid-3{grid-template-columns:1fr 1fr;}
+
+  /* ── 카테고리 히어로 ── */
+  .cat-hero-inner{padding:0 14px;}
+  .cat-hero-stats{flex-wrap:wrap;gap:8px;}
+  .cat-stat{flex:1;min-width:80px;padding:9px 12px;}
+  .cat-stat-num{font-size:1.3rem;}
+  .subcat-tabs{padding:0 14px;}
+
+  /* ── 달력 ── */
+  .calendar-inner{padding:0 14px;}
+  .cal-header{padding:12px 0 8px;}
+  .cal-cell{min-height:46px;padding:2px 3px;font-size:0.68rem;}
+  .cal-ev{font-size:0.58rem;padding:1px 3px;}
+
+  /* ── 글 상세 ── */
+  .detail-page{padding:28px 16px 48px;}
+  .detail-title{font-size:1.45rem;}
+  .detail-meta{font-size:0.72rem;flex-wrap:wrap;gap:6px;}
+  .detail-body{font-size:0.93rem;line-height:1.9;}
+  .detail-body h1{font-size:1.5rem;}
+  .detail-body h2{font-size:1.2rem;}
+  .detail-body h3{font-size:1.05rem;}
+
+  /* ── 전체화면 글쓰기 에디터 ── */
+  .editor-inner{padding:18px 14px 100px;}
+  .editor-title-input{font-size:1.45rem;}
+  .editor-topbar{padding:6px 10px;gap:5px;}
+  .editor-back-btn{font-size:0.85rem;padding:4px 6px;}
+  .editor-toolbar{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding:5px 8px;gap:2px;}
+  .editor-toolbar::-webkit-scrollbar{display:none;}
+  .editor-btn{padding:5px 7px;font-size:0.8rem;}
+  .editor-content{font-size:0.93rem;}
+
+  /* ── 음악 플레이어 바 ── */
+  .music-player-bar{padding:8px 12px;gap:10px;}
+  .music-player-info .music-title{font-size:0.8rem;}
+  .music-player-btns{gap:6px;}
+  .music-player-btn{width:30px;height:30px;font-size:0.7rem;}
+  .music-player-btn.main{width:36px;height:36px;}
+
+  /* ── 음악 리스트 ── */
+  .music-item{padding:10px 12px;gap:10px;}
+  .music-thumb{width:44px;height:44px;}
+  .music-thumb-placeholder{width:44px;height:44px;}
+  .music-title{font-size:0.85rem;}
+
+  /* ── 야구 그리드 ── */
+  .baseball-grid{grid-template-columns:1fr;}
+
+  /* ── 모달 ── */
+  .modal{max-height:95vh;border-radius:12px 12px 0 0;}
+  .modal-body{padding:14px 18px;}
+  .modal-foot{padding:12px 18px;}
+
+  /* ── confirm 모달 ── */
+  .confirm-modal{padding:24px 20px;}
+  .confirm-modal-desc{font-size:0.85rem;}
+
+  /* ── 달력 모달 ── */
+  .cal-modal{width:calc(100vw - 32px)!important;max-width:100%!important;}
+
+  /* ── 기타 ── */
+  body.has-player{padding-bottom:64px;}
+  .video-embed{margin-bottom:16px;}
+  .pc-actions,.f-actions{opacity:1!important;}
+}
+
+@media (max-width:480px){
+  .posts-grid-3{grid-template-columns:1fr;}
+  .stats-inner{grid-template-columns:repeat(2,1fr);}
+  .hero-title{font-size:1.55rem;}
+  .cat-hero-stats .cat-stat:last-child{flex-basis:100%;}
+}`;
 
 // ─── Market Chart (구글 파이낸스 스타일, 외부 API 불필요) ──────────────────────
 function genIntraday(last, pct, n) {
@@ -1679,7 +1821,7 @@ export default function App() {
   // ── Derived ────────────────────────────────────────────────────────────────
   const EMO={insight:'💡',inspiration:'✨',career:'💼',study:'📚',invest:'💰',daily:'☀️',baseball:'⚾',music:'🎵'};
   const isAll = activeCat==="all";
-  const catInfo = CAT[activeCat];
+  const catInfo = CAT[activeCat] || { label: activeCat, color: '#666', desc: '' };
   const subcats = !isAll ? SUBCATS[activeCat]||[] : [];
   const catFiltered = isAll ? posts : posts.filter(p=>p.cat===activeCat);
   const filtered = activeSub==="all" ? catFiltered : catFiltered.filter(p=>p.subcat===activeSub);
@@ -1691,6 +1833,7 @@ export default function App() {
 
   // ── 설정 드롭다운 ─────────────────────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const isMobile = useIsMobile();
 
   if(loading) return <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',color:'#888'}}>불러오는 중...</div>;
 
@@ -2511,14 +2654,16 @@ export default function App() {
           <div className="editor-topbar-left">
             <button className="editor-back-btn" onClick={()=>setModal(null)} title="닫기">✕ 닫기</button>
             <div className="editor-sep" style={{height:20}}/>
-            <select value={form.cat} style={{border:'1px solid var(--border)',borderRadius:6,padding:'5px 8px',fontSize:'0.8rem',cursor:'pointer',background:'#fff'}}
+            <select value={form.cat} style={{border:'1px solid var(--border)',borderRadius:6,padding:'5px 8px',fontSize:'0.8rem',cursor:'pointer',background:'#fff',maxWidth:isMobile?90:200}}
               onChange={e=>setForm({...form,cat:e.target.value,subcat:"all"})}>
               {CATS.slice(1).map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
-            <select value={form.subcat} style={{border:'1px solid var(--border)',borderRadius:6,padding:'5px 8px',fontSize:'0.8rem',cursor:'pointer',background:'#fff'}}
-              onChange={e=>setForm({...form,subcat:e.target.value})}>
-              {(SUBCATS[form.cat]||[]).map(s=><option key={s.id||s} value={s.id||s}>{s.label||s}</option>)}
-            </select>
+            {!isMobile && (
+              <select value={form.subcat} style={{border:'1px solid var(--border)',borderRadius:6,padding:'5px 8px',fontSize:'0.8rem',cursor:'pointer',background:'#fff'}}
+                onChange={e=>setForm({...form,subcat:e.target.value})}>
+                {(SUBCATS[form.cat]||[]).map(s=><option key={s.id||s} value={s.id||s}>{s.label||s}</option>)}
+              </select>
+            )}
           </div>
           <div className="editor-topbar-right">
             <label style={{display:'flex',alignItems:'center',gap:5,fontSize:'0.8rem',cursor:'pointer',color:'var(--muted)'}}>
