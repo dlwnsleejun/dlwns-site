@@ -143,6 +143,19 @@ function parseVideoUrl(url) {
   return { type:"link", url };
 }
 
+// 게시글 썸네일 소스 결정:
+//   1) images 배열 첫 번째 → 2) img 필드 → 3) 유튜브 썸네일 → null
+function getThumb(p) {
+  if(!p) return null;
+  if(p.images && p.images.length > 0) return p.images[0];
+  if(p.img) return p.img;
+  if(p.videoUrl) {
+    const v = parseVideoUrl(p.videoUrl);
+    if(v && v.id) return `https://img.youtube.com/vi/${v.id}/hqdefault.jpg`;
+  }
+  return null;
+}
+
 const DEF_PROFILE = { name:"dlwnsleejun", tagline:"기록하는 사람", bio:"", avatar:"" };
 // DEF_POSTS 제거: 샘플 글이 자동으로 올라오는 문제 방지
 // Supabase가 비어있거나 로드 실패 시 빈 배열 사용
@@ -2215,7 +2228,7 @@ export default function App() {
                         <div className="posts-grid">
                           {grouped[date].map(p=>(
                             <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
-                              <div className="pc-thumb">{p.img?<img src={p.img} alt=""/>:EMO[p.cat]}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
+                              <div className="pc-thumb">{(s=>s?<img src={s} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:EMO[p.cat])(getThumb(p))}{p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}</div>
                               <div className="pc-body">
                                 <div className="pc-cat" style={{color:CAT[p.cat]?.color}}>{CAT[p.cat]?.label}</div>
                                 <div className="pc-title">{p.title}</div>
@@ -2250,9 +2263,7 @@ export default function App() {
                       </div>
                     </div>
                     <div className="featured-img">
-                      {pinned.subcat==='photo'&&(pinned.images||[]).length>0?(
-                        <img src={pinned.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                      ):pinned.img?<img src={pinned.img} alt=""/>:EMO[pinned.cat]}
+                      {(s=>s?<img src={s} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:EMO[pinned.cat])(getThumb(pinned))}
                       {pinned.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                   </div>
@@ -2262,7 +2273,7 @@ export default function App() {
                     {rest.map(p=>(
                       <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
                         <div className="pc-thumb">
-                          {p.img?<img src={p.img} alt=""/>:EMO[p.cat]}
+                          {(s=>s?<img src={s} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:EMO[p.cat])(getThumb(p))}
                           {p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                         </div>
                         <div className="pc-body">
@@ -2416,18 +2427,14 @@ export default function App() {
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))',gap:20}}>
                     {filtered.map(p=>(
                       <div key={p.id} className="post-card" onClick={()=>navToPost(p)} style={{overflow:'hidden'}}>
-                        {/* 야구: 첫 사진을 1/3 비율로 크게 */}
-                        {(p.images||[]).length>0 ? (
+                        {/* 야구: 썸네일 3/2 비율 - 사진>유튜브썸네일>기본 */}
+                        {(src=>src ? (
                           <div style={{aspectRatio:'3/2',overflow:'hidden',background:'#111'}}>
-                            <img src={p.images[0]} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
-                          </div>
-                        ) : p.img ? (
-                          <div style={{aspectRatio:'3/2',overflow:'hidden'}}>
-                            <img src={p.img} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
+                            <img src={src} alt="" style={{width:'100%',height:'100%',objectFit:'cover',display:'block'}}/>
                           </div>
                         ) : (
                           <div style={{aspectRatio:'3/2',background:'#1565C022',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'3rem'}}>⚾</div>
-                        )}
+                        ))(getThumb(p))}
                         <div className="pc-body">
                           <div className="pc-cat" style={{color:'#1565C0'}}>야구</div>
                           {subcatLabel(p)&&<div className="pc-sub">{subcatLabel(p)}</div>}
@@ -2458,7 +2465,7 @@ export default function App() {
                 {filtered.map(p=>(
                   <div key={p.id} className="post-card" onClick={()=>navToPost(p)}>
                     <div className="pc-thumb">
-                      {p.img?<img src={p.img} alt=""/>:EMO[p.cat]}
+                      {(s=>s?<img src={s} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:EMO[p.cat])(getThumb(p))}
                       {p.videoUrl&&<div className="video-badge">▶ VIDEO</div>}
                     </div>
                     <div className="pc-body">
